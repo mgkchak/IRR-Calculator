@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRR Calculator — LDI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #171b26;
+    --surface2: #1e2333;
+    --surface3: #252b3d;
+    --border: #2e354f;
+    --border-bright: #3d4666;
+    --accent: #6b8afd;
+    --accent2: #a78bfa;
+    --accent3: #34d399;
+    --warn: #f59e0b;
+    --error: #f87171;
+    --text: #e2e8f0;
+    --text-dim: #8892b0;
+    --text-faint: #4a5578;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .logo-mark {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; color: white;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+  header p  { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .badge {
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 10px; border-radius: 100px;
+    border: 1px solid var(--border-bright); color: var(--text-dim);
+  }
+
+  .app-body {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 69px);
+  }
+
+  .sidebar {
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-section {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-label {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-faint); margin-bottom: 12px;
+    font-family: var(--mono);
+  }
+
+  /* Drop zone */
+  .drop-zone {
+    border: 1.5px dashed var(--border-bright);
+    border-radius: 10px; padding: 24px 16px;
+    text-align: center; cursor: pointer;
+    transition: all .2s; background: var(--surface2);
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(107,138,253,.07);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon { font-size: 26px; margin-bottom: 6px; }
+  .drop-text { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .drop-text strong { color: var(--accent); }
+  .drop-formats { font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-top: 5px; }
+  .file-loaded { background: rgba(52,211,153,.07); border-color: var(--accent3); border-style: solid; }
+
+  /* Sheet version selector */
+  .version-cards { display: flex; flex-direction: column; gap: 6px; }
+  .version-card {
+    padding: 10px 13px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: var(--surface2);
+    cursor: pointer;
+    transition: all .15s;
+    display: flex; align-items: center; gap: 10px;
+    user-select: none;
+  }
+  .version-card:hover { border-color: var(--border-bright); }
+  .version-card.active { border-color: var(--accent); background: rgba(107,138,253,.08); }
+  .version-card.disabled { opacity: .38; cursor: not-allowed; }
+  .version-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border-bright); flex-shrink: 0; transition: background .15s;
+  }
+  .version-card.active .version-dot { background: var(--accent); }
+  .version-card.disabled .version-dot { background: var(--text-faint); }
+  .version-name { font-size: 12px; font-weight: 600; }
+  .version-sub { font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
+  .version-badge {
+    margin-left: auto; font-family: var(--mono); font-size: 9px;
+    padding: 2px 7px; border-radius: 100px;
+    background: var(--surface3); color: var(--text-faint);
+    border: 1px solid var(--border);
+  }
+
+  /* Detection banner */
+  .detect-banner {
+    margin-top: 10px; padding: 9px 12px;
+    border-radius: 7px; font-family: var(--mono); font-size: 11px;
+    display: none; gap: 8px; align-items: flex-start;
+    background: rgba(107,138,253,.1); border: 1px solid #6b8afd33; color: var(--accent);
+  }
+  .detect-banner.visible { display: flex; }
+
+  label.ctrl-label {
+    display: block; font-size: 11px; color: var(--text-dim);
+    margin-bottom: 6px; font-family: var(--mono);
+  }
+  select, input[type=text] {
+    width: 100%; background: var(--surface3); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 12px;
+    padding: 8px 10px; outline: none; transition: border-color .15s;
+    appearance: none; -webkit-appearance: none;
+  }
+  select:focus, input[type=text]:focus { border-color: var(--accent); }
+  select option { background: var(--surface3); }
+  .select-wrapper { position: relative; }
+  .select-wrapper::after {
+    content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text-faint); pointer-events: none; font-size: 11px;
+  }
+  .ctrl-row { margin-bottom: 12px; }
+
+  /* Col picker */
+  .col-picker-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .col-picker-count {
+    font-family: var(--mono); font-size: 10px; color: var(--accent);
+  }
+  .col-picker-actions { display: flex; gap: 6px; }
+  .picker-action-btn {
+    font-family: var(--mono); font-size: 10px; padding: 2px 8px;
+    border-radius: 4px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-faint); cursor: pointer;
+    transition: all .12s;
+  }
+  .picker-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .col-picker {
+    max-height: 200px; overflow-y: auto;
+    background: var(--surface3); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px;
+  }
+  .col-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 6px; border-radius: 5px; cursor: pointer;
+    transition: background .1s;
+  }
+  .col-item:hover { background: var(--surface); }
+  .col-item input[type=checkbox] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+  .col-item .col-name { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-item .col-type-badge {
+    margin-left: auto; font-family: var(--mono); font-size: 9px;
+    padding: 1px 6px; border-radius: 100px; flex-shrink: 0;
+    background: var(--surface2); color: var(--text-faint);
+    border: 1px solid var(--border); cursor: default;
+  }
+  .col-type-badge.nom { color: #60a5fa; border-color: #60a5fa33; }
+  .col-type-badge.ord { color: #a78bfa; border-color: #a78bfa33; }
+  .col-type-badge.int { color: #34d399; border-color: #34d39933; }
+
+  .col-type-selector { display: none; margin-top: 2px; padding: 3px 0 3px 24px; }
+  .col-type-selector.visible { display: flex; gap: 5px; }
+  .type-btn {
+    font-family: var(--mono); font-size: 10px; padding: 2px 8px;
+    border-radius: 100px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); cursor: pointer; transition: all .12s;
+  }
+  .type-btn.active-nom { background: #60a5fa22; border-color: #60a5fa; color: #60a5fa; }
+  .type-btn.active-ord { background: #a78bfa22; border-color: #a78bfa; color: #a78bfa; }
+  .type-btn.active-int { background: #34d39922; border-color: #34d399; color: #34d399; }
+
+  /* Metrics */
+  .metric-list { display: flex; flex-direction: column; gap: 7px; }
+  .metric-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 12px; background: var(--surface3);
+    border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; transition: all .15s; user-select: none;
+  }
+  .metric-item:hover { border-color: var(--border-bright); }
+  .metric-item.selected { border-color: var(--accent); background: rgba(107,138,253,.08); }
+  .metric-item input[type=checkbox] { accent-color: var(--accent); margin-top: 1px; flex-shrink: 0; }
+  .metric-name { font-size: 12px; font-weight: 600; }
+  .metric-desc { font-size: 10px; color: var(--text-faint); font-family: var(--mono); margin-top: 2px; }
+
+  /* Coder filter */
+  .coder-filter-toggle {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-dim); cursor: pointer; user-select: none; margin-bottom: 10px;
+  }
+  .coder-filter-toggle input { accent-color: var(--accent); }
+  .coder-multi { display: none; flex-direction: column; gap: 4px; }
+  .coder-multi.visible { display: flex; }
+
+  .run-btn {
+    width: 100%; padding: 13px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none; border-radius: 8px; color: white;
+    font-family: var(--sans); font-size: 14px; font-weight: 700;
+    cursor: pointer; letter-spacing: .3px; transition: opacity .15s, transform .1s;
+  }
+  .run-btn:hover { opacity: .9; transform: translateY(-1px); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+  .main-panel {
+    overflow-y: auto; padding: 28px 32px;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    color: var(--text-faint); text-align: center; padding: 60px;
+  }
+  .empty-icon { font-size: 48px; opacity: .4; }
+  .empty-state h2 { font-size: 18px; color: var(--text-dim); }
+  .empty-state p { font-size: 13px; font-family: var(--mono); max-width: 360px; line-height: 1.6; }
+
+  .results-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .results-title { font-size: 20px; font-weight: 700; }
+  .results-meta { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .export-btns { display: flex; gap: 8px; }
+  .export-btn {
+    padding: 7px 16px; border-radius: 6px; border: 1px solid var(--border-bright);
+    background: var(--surface2); color: var(--text-dim);
+    font-family: var(--mono); font-size: 11px; cursor: pointer; transition: all .15s;
+  }
+  .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .banner {
+    padding: 12px 16px; border-radius: 8px; font-family: var(--mono); font-size: 12px;
+    line-height: 1.6; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .banner.error { background: rgba(248,113,113,.1); border: 1px solid #f8717133; color: var(--error); }
+  .banner.warn  { background: rgba(245,158,11,.1);  border: 1px solid #f59e0b33; color: var(--warn); }
+  .banner.info  { background: rgba(107,138,253,.1); border: 1px solid #6b8afd33; color: var(--accent); }
+  .banner-icon { flex-shrink: 0; font-size: 14px; }
+
+  .metric-block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .metric-block-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .metric-block-title { font-size: 15px; font-weight: 700; }
+  .metric-block-sub { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-left: auto; }
+
+  .score-row {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1px; background: var(--border);
+  }
+  .score-cell { background: var(--surface2); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+  .score-value { font-family: var(--mono); font-size: 26px; font-weight: 500; line-height: 1; }
+  .score-value.good { color: var(--accent3); }
+  .score-value.fair { color: var(--warn); }
+  .score-value.poor { color: var(--error); }
+  .score-value.na   { color: var(--text-faint); font-size: 16px; }
+  .score-label { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+  .score-interp { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+
+  .rq-table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  thead tr { background: var(--surface3); }
+  th {
+    padding: 10px 14px; text-align: left; color: var(--text-faint);
+    font-weight: 500; letter-spacing: .5px; white-space: nowrap; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(255,255,255,.02); }
+  .val-good { color: var(--accent3); font-weight: 500; }
+  .val-fair { color: var(--warn); }
+  .val-poor { color: var(--error); }
+  .val-na   { color: var(--text-faint); }
+
+  .section-header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 600; color: var(--text-dim);
+    letter-spacing: .3px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-header .pill {
+    font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 100px;
+    background: var(--surface3); color: var(--text-faint); border: 1px solid var(--border);
+  }
+
+  .pair-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 100px;
+    background: rgba(107,138,253,.12); color: var(--accent);
+    border: 1px solid rgba(107,138,253,.25); white-space: nowrap;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+  .hidden { display: none !important; }
+
+  .preview-strip {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-family: var(--mono);
+    font-size: 11px; color: var(--text-dim); line-height: 1.7;
+  }
+  .preview-strip strong { color: var(--accent3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">IRR</div>
+  <div>
+    <h1>Inter-Rater Reliability Calculator</h1>
+    <p>Learning Data Insights · GenAI Evidence Hub</p>
+  </div>
+  <div class="header-right">
+    <span class="badge">v1.1</span>
+  </div>
+</header>
+
+<div class="app-body">
+  <aside class="sidebar">
+
+    <!-- 01 Upload -->
+    <div class="sidebar-section">
+      <div class="section-label">01 — Upload File</div>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.tsv,.txt">
+        <div class="drop-icon" id="dropIcon">📂</div>
+        <div class="drop-text" id="dropText"><strong>Click or drag</strong> to upload coding sheet</div>
+        <div class="drop-formats">.csv · .xlsx · .xls · .tsv · .txt</div>
+      </div>
+      <div id="filePreview" class="preview-strip hidden" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- 02 Sheet Version -->
+    <div class="sidebar-section" id="versionSection" style="display:none;">
+      <div class="section-label">02 — Coding Sheet Version</div>
+      <div class="version-cards">
+        <div class="version-card" data-version="as" id="card-as">
+          <div class="version-dot"></div>
+          <div>
+            <div class="version-name">Automated Scoring</div>
+            <div class="version-sub">Auto-selects IRR columns</div>
+          </div>
+          <span class="version-badge">Active</span>
+        </div>
+        <div class="version-card" data-version="ig" id="card-ig">
+          <div class="version-dot"></div>
+          <div>
+            <div class="version-name">Item Generation</div>
+            <div class="version-sub">Auto-selects IRR columns</div>
+          </div>
+          <span class="version-badge">Active</span>
+        </div>
+        <div class="version-card disabled" data-version="ff" id="card-ff">
+          <div class="version-dot"></div>
+          <div>
+            <div class="version-name">Formative Feedback</div>
+            <div class="version-sub">Not yet available</div>
+          </div>
+          <span class="version-badge">Soon</span>
+        </div>
+      </div>
+      <div class="detect-banner" id="detectBanner">
+        <span>🔍</span>
+        <span id="detectMsg"></span>
+      </div>
+    </div>
+
+    <!-- 03 Configure Columns -->
+    <div class="sidebar-section" id="colSection" style="display:none;">
+      <div class="section-label">03 — Configure Columns</div>
+
+      <div class="ctrl-row">
+        <label class="ctrl-label">Paper / Item ID column</label>
+        <div class="select-wrapper">
+          <select id="paperCol"></select>
+        </div>
+      </div>
+
+      <div class="ctrl-row">
+        <label class="ctrl-label">Coder ID column</label>
+        <div class="select-wrapper">
+          <select id="coderCol">
+            <option value="">(Wide format — coders are columns)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ctrl-row">
+        <label class="ctrl-label">IRR columns
+          <span style="color:var(--text-faint)"> — click ✓ to toggle, badge to set data type</span>
+        </label>
+        <div class="col-picker-header">
+          <span class="col-picker-count" id="pickerCount">0 selected</span>
+          <div class="col-picker-actions">
+            <button class="picker-action-btn" id="selectAllBtn">Select all</button>
+            <button class="picker-action-btn" id="clearAllBtn">Clear</button>
+          </div>
+        </div>
+        <div class="col-picker" id="colPicker"></div>
+      </div>
+    </div>
+
+    <!-- 04 Coder Filter -->
+    <div class="sidebar-section" id="coderSection" style="display:none;">
+      <div class="section-label">04 — Coder Filter</div>
+      <label class="coder-filter-toggle">
+        <input type="checkbox" id="filterCoders"> Filter to specific coders only
+      </label>
+      <div class="coder-multi" id="coderMulti"></div>
+    </div>
+
+    <!-- 05 Metrics -->
+    <div class="sidebar-section" id="metricSection" style="display:none;">
+      <div class="section-label">05 — Select Metrics</div>
+      <div class="metric-list">
+        <label class="metric-item selected">
+          <input type="checkbox" checked data-metric="alpha">
+          <div>
+            <div class="metric-name">Krippendorff's Alpha</div>
+            <div class="metric-desc">nom · ord · int · ratio</div>
+          </div>
+        </label>
+        <label class="metric-item selected">
+          <input type="checkbox" checked data-metric="pairwise">
+          <div>
+            <div class="metric-name">Pairwise % Agreement</div>
+            <div class="metric-desc">all data types · exact match</div>
+          </div>
+        </label>
+        <label class="metric-item selected">
+          <input type="checkbox" checked data-metric="cohen">
+          <div>
+            <div class="metric-name">Cohen's Kappa</div>
+            <div class="metric-desc">exactly 2 coders · nominal</div>
+          </div>
+        </label>
+        <label class="metric-item selected">
+          <input type="checkbox" checked data-metric="fleiss">
+          <div>
+            <div class="metric-name">Fleiss' Kappa</div>
+            <div class="metric-desc">3+ coders · nominal</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- 06 Run -->
+    <div class="sidebar-section" id="runSection" style="display:none;">
+      <button class="run-btn" id="runBtn">Calculate IRR</button>
+    </div>
+
+  </aside>
+
+  <main class="main-panel" id="mainPanel">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📊</div>
+      <h2>No results yet</h2>
+      <p>Upload a coding sheet, select the sheet version, configure columns and metrics, then click <strong>Calculate IRR</strong>.</p>
+    </div>
+    <div id="resultsArea" class="hidden"></div>
+  </main>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// SHEET VERSION COLUMN DEFINITIONS
+// ═══════════════════════════════════════════
+const SHEET_VERSIONS = {
+  as: {
+    name: 'Automated Scoring',
+    // signature columns used to auto-detect this sheet
+    signature: ['Metric1-type', 'Metric1-truth', 'Bias / Fairness Evaluated'],
+    cols: [
+      'Domain','AI Innovation','Fairness acknowledged','Bias / Fairness Evaluated',
+      'Research Question','Total number of models tested','Tested LLM Model & Version Used',
+      'Tested Model & Techniques List','Baselines tested','Baseline list','Prompting techniques',
+      'Metric1-type','Metric1-truth','Metric1-min source','Metric1-min','Metric1-max source','Metric1-max',
+      'Metric1-min baseline','Metric1-min baseline value','Metric1-min baseline difference','Metric1-min baseline significant',
+      'Metric1-max baseline','Metric1-max baseline value','Metric1-max baseline difference','Metric1-max baseline significant',
+      'Metric1-Additional evaluation method notes',
+      'Metric2-type','Metric2-truth','Metric2-min source','Metric2-min','Metric2-max source','Metric2-max',
+      'Metric2-min baseline','Metric2-min baseline value','Metric2-baseline min difference','Metric2-min baseline significant',
+      'Metric2-max baseline','Metric2-max baseline value','Metric2-max baseline difference','Metric2-max baseline significant',
+      'Metric2-Additional evaluation method notes',
+      'Metric3-type','Metric3-truth','Metric3-min source','Metric3-min','Metric3-max source','Metric3-max',
+      'Metric3-min baseline','Metric3-min baseline value','Metric3-baseline min difference','Metric3-min baseline significant',
+      'Metric3-max baseline','Metric3-max baseline value','Metric3-max baseline difference','Metric3-max baseline significant',
+      'Metric3-Additional evaluation method notes',
+      'Metric4-type','Metric4-truth','Metric4-min source','Metric4-min','Metric4-max source','Metric4-max',
+      'Metric4-min baseline','Metric4-min baseline value','Metric4-baseline min difference','Metric4-min baseline significant',
+      'Metric4-max baseline','Metric4-max baseline value','Metric4-max baseline difference','Metric4-max baseline significant',
+      'Metric4-Additional evaluation method notes',
+      'Metric5-type','Metric5-truth','Metric5-min source','Metric5-min','Metric5-max source','Metric5-max',
+      'Metric5-min baseline','Metric5-min baseline value','Metric5-baseline min difference','Metric5-min baseline significant',
+      'Metric5-max baseline','Metric5-max baseline value','Metric5-max baseline difference','Metric5-max baseline significant',
+      'Metric5-Additional evaluation method notes',
+      'Metric6-type','Metric6-truth','Metric6-min source','Metric6-min','Metric6-max source','Metric6-max',
+      'Metric6-min baseline','Metric6-min baseline value','Metric6-baseline min difference','Metric6-min baseline significant',
+      'Metric6-max baseline','Metric6-max baseline value','Metric6-max baseline difference','Metric6-max baseline significant',
+      'Metric6-Additional evaluation method notes',
+      'Metric7-type','Metric7-truth','Metric7-min source','Metric7-min','Metric7-max source','Metric7-max',
+      'Metric7-min baseline','Metric7-min baseline value','Metric7-baseline min difference','Metric7-min baseline significant',
+      'Metric7-max baseline','Metric7-max baseline value','Metric7-max baseline difference','Metric7-max baseline significant',
+      'Metric7-Additional evaluation method notes',
+      'Metric8-type','Metric8-truth','Metric8-min source','Metric8-min','Metric8-max source','Metric8-max',
+      'Metric8-min baseline','Metric8-min baseline value','Metric8-baseline min difference','Metric8-min baseline significant',
+      'Metric8-max baseline','Metric8-max baseline value','Metric8-max baseline difference','Metric8-max baseline significant',
+      'Metric8-Additional evaluation method notes',
+      'Metric9-type','Metric9-truth','Metric9-min source','Metric9-min','Metric9-max source','Metric9-max',
+      'Metric9-min baseline','Metric9-min baseline value','Metric9-baseline min difference','Metric9-min baseline significant',
+      'Metric9-max baseline','Metric9-max baseline value','Metric9-max baseline difference','Metric9-max baseline significant',
+      'Metric9-Additional evaluation method notes',
+      'Metric10-type','Metric10-truth','Metric10-min source','Metric10-min','Metric10-max source','Metric10-max',
+      'Metric10-min baseline','Metric10-min baseline value','Metric10-baseline min difference','Metric10-min baseline significant',
+      'Metric10-max baseline','Metric10-max baseline value','Metric10-max baseline difference','Metric10-max baseline significant',
+      'Metric10-Additional evaluation method notes'
+    ]
+  },
+  ig: {
+    name: 'Item Generation',
+    signature: ['Metric1-analysis type','Metric1-category','Bias / Equity Evaluated'],
+    cols: [
+      'Domain','AI Innovation','Fairness acknowledged','Bias / Equity Evaluated',
+      'Research Question','Total number of models tested','Tested LLM Model & Version Used',
+      'Tested Model & Techniques List','Baselines tested','Baseline list','Prompting techniques',
+      'Metric1-analysis type','Metric1-category','Metric1-type','Metric1-assessment tool',
+      'Metric1-truth','Metric1-min source','Metric1-min','Metric1-max source','Metric1-max',
+      'Metric1-min baseline','Metric1-min baseline value','Metric1-min baseline difference','Metric1-min baseline significant',
+      'Metric1-max baseline','Metric1-max baseline value','Metric1-max baseline difference','Metric1-max baseline significant',
+      'Metric1-evaluation results','Metric1-Additional evaluation method notes',
+      'Metric2-analysis type','Metric2-category','Metric2-type','Metric2-assessment tool',
+      'Metric2-truth','Metric2-min source','Metric2-min','Metric2-max source','Metric2-max',
+      'Metric2-min baseline','Metric2-min baseline value','Metric2-min baseline difference','Metric2-min baseline significant',
+      'Metric2-max baseline','Metric2-max baseline value','Metric2-max baseline difference','Metric2-max baseline significant',
+      'Metric2-evaluation results','Metric2-Additional evaluation method notes',
+      'Metric3-analysis type','Metric3-category','Metric3-type','Metric3-assessment tool',
+      'Metric3-truth','Metric3-min source','Metric3-min','Metric3-max source','Metric3-max',
+      'Metric3-min baseline','Metric3-min baseline value','Metric3-min baseline difference','Metric3-min baseline significant',
+      'Metric3-max baseline','Metric3-max baseline value','Metric3-max baseline difference','Metric3-max baseline significant',
+      'Metric3-evaluation results','Metric3-Additional evaluation method notes',
+      'Metric4-analysis type','Metric4-category','Metric4-type','Metric4-assessment tool',
+      'Metric4-truth','Metric4-min source','Metric4-min','Metric4-max source','Metric4-max',
+      'Metric4-min baseline','Metric4-min baseline value','Metric4-min baseline difference','Metric4-min baseline significant',
+      'Metric4-max baseline','Metric4-max baseline value','Metric4-max baseline difference','Metric4-max baseline significant',
+      'Metric4-evaluation results','Metric4-Additional evaluation method notes',
+      'Metric5-analysis type','Metric5-category','Metric5-type','Metric5-assessment tool',
+      'Metric5-truth','Metric5-min source','Metric5-min','Metric5-max source','Metric5-max',
+      'Metric5-min baseline','Metric5-min baseline value','Metric5-min baseline difference','Metric5-min baseline significant',
+      'Metric5-max baseline','Metric5-max baseline value','Metric5-max baseline difference','Metric5-max baseline significant',
+      'Metric5-evaluation results','Metric5-Additional evaluation method notes',
+      'Metric6-analysis type','Metric6-category','Metric6-type','Metric6-assessment tool',
+      'Metric6-truth','Metric6-min source','Metric6-min','Metric6-max source','Metric6-max',
+      'Metric6-min baseline','Metric6-min baseline value','Metric6-min baseline difference','Metric6-min baseline significant',
+      'Metric6-max baseline','Metric6-max baseline value','Metric6-max baseline difference','Metric6-max baseline significant',
+      'Metric6-evaluation results','Metric6-Additional evaluation method notes',
+      'Metric7-analysis type','Metric7-category','Metric7-type','Metric7-assessment tool',
+      'Metric7-truth','Metric7-min source','Metric7-min','Metric7-max source','Metric7-max',
+      'Metric7-min baseline','Metric7-min baseline value','Metric7-min baseline difference','Metric7-min baseline significant',
+      'Metric7-max baseline','Metric7-max baseline value','Metric7-max baseline difference','Metric7-max baseline significant',
+      'Metric7-evaluation results','Metric7-Additional evaluation method notes',
+      'Metric8-analysis type','Metric8-category','Metric8-type','Metric8-assessment tool',
+      'Metric8-truth','Metric8-min source','Metric8-min','Metric8-max source','Metric8-max',
+      'Metric8-min baseline','Metric8-min baseline value','Metric8-min baseline difference','Metric8-min baseline significant',
+      'Metric8-max baseline','Metric8-max baseline value','Metric8-max baseline difference','Metric8-max baseline significant',
+      'Metric8-evaluation results','Metric8-Additional evaluation method notes',
+      'Metric9-analysis type','Metric9-category','Metric9-type','Metric9-assessment tool',
+      'Metric9-truth','Metric9-min source','Metric9-min','Metric9-max source','Metric9-max',
+      'Metric9-min baseline','Metric9-min baseline value','Metric9-min baseline difference','Metric9-min baseline significant',
+      'Metric9-max baseline','Metric9-max baseline value','Metric9-max baseline difference','Metric9-max baseline significant',
+      'Metric9-evaluation results','Metric9-Additional evaluation method notes',
+      'Metric10-analysis type','Metric10-category','Metric10-type','Metric10-assessment tool',
+      'Metric10-truth','Metric10-min source','Metric10-min','Metric10-max source','Metric10-max',
+      'Metric10-min baseline','Metric10-min baseline value','Metric10-min baseline difference','Metric10-min baseline significant',
+      'Metric10-max baseline','Metric10-max baseline value','Metric10-max baseline difference','Metric10-max baseline significant',
+      'Metric10-evaluation results','Metric10-Additional evaluation method notes'
+    ]
+  },
+  ff: {
+    name: 'Formative Feedback',
+    signature: [],
+    cols: []
+  }
+};
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let rawData = [];
+let allColumns = [];
+let colTypes = {};
+let selectedCols = new Set();
+let lastResults = null;
+let activeVersion = null; // 'as' | 'ig' | 'ff' | null
+
+// ═══════════════════════════════════════════
+// FILE LOADING
+// ═══════════════════════════════════════════
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
+  if (ext === 'xlsx' || ext === 'xls') {
+    reader.onload = e => {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      loadData(XLSX.utils.sheet_to_json(ws, { defval: '' }), file.name);
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.onload = e => {
+      const text = e.target.result;
+      const delim = ext === 'tsv' ? '\t' : detectDelim(text);
+      const wb = XLSX.read(text, { type: 'string', FS: delim });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      loadData(XLSX.utils.sheet_to_json(ws, { defval: '' }), file.name);
+    };
+    reader.readAsText(file);
+  }
+}
+
+function detectDelim(text) {
+  const first = text.split('\n')[0];
+  const t = (first.match(/\t/g)||[]).length;
+  const c = (first.match(/,/g)||[]).length;
+  const s = (first.match(/;/g)||[]).length;
+  if (t >= c && t >= s) return '\t';
+  if (s > c) return ';';
+  return ',';
+}
+
+function loadData(data, filename) {
+  rawData = data;
+  allColumns = Object.keys(data[0] || {});
+  colTypes = {};
+  allColumns.forEach(c => { colTypes[c] = guessType(data, c); });
+
+  dropZone.classList.add('file-loaded');
+  document.getElementById('dropIcon').textContent = '✅';
+  document.getElementById('dropText').innerHTML = `<strong>${filename}</strong>`;
+  const prev = document.getElementById('filePreview');
+  prev.classList.remove('hidden');
+  prev.innerHTML = `<strong>${data.length}</strong> rows · <strong>${allColumns.length}</strong> columns detected`;
+
+  // Auto-detect version
+  const detected = detectVersion(allColumns);
+  activeVersion = detected;
+
+  document.getElementById('versionSection').style.display = '';
+  renderVersionCards(detected);
+  applyVersionAndRebuild(detected || 'as');
+
+  document.getElementById('coderSection').style.display = '';
+  document.getElementById('metricSection').style.display = '';
+  document.getElementById('runSection').style.display = '';
+}
+
+function guessType(data, col) {
+  const vals = data.map(r => r[col]).filter(v => v !== '' && v != null);
+  const nums = vals.filter(v => !isNaN(Number(v)));
+  if (nums.length > 0 && nums.length === vals.length) return 'interval';
+  return 'nominal';
+}
+
+// ═══════════════════════════════════════════
+// VERSION DETECTION & SELECTION
+// ═══════════════════════════════════════════
+function detectVersion(cols) {
+  const colSet = new Set(cols);
+  // Score each version by signature matches
+  let best = null, bestScore = 0;
+  for (const [key, def] of Object.entries(SHEET_VERSIONS)) {
+    if (!def.signature.length) continue;
+    const score = def.signature.filter(s => colSet.has(s)).length;
+    if (score > bestScore) { bestScore = score; best = key; }
+  }
+  return best;
+}
+
+function renderVersionCards(detectedKey) {
+  ['as','ig','ff'].forEach(k => {
+    const card = document.getElementById(`card-${k}`);
+    card.classList.remove('active');
+    if (k !== 'ff') {
+      card.onclick = () => {
+        activeVersion = k;
+        renderVersionCards(null);
+        card.classList.add('active');
+        applyVersionAndRebuild(k);
+      };
+    }
+  });
+
+  if (detectedKey && detectedKey !== 'ff') {
+    document.getElementById(`card-${detectedKey}`).classList.add('active');
+    const banner = document.getElementById('detectBanner');
+    const msg = document.getElementById('detectMsg');
+    banner.classList.add('visible');
+    msg.textContent = `Auto-detected as "${SHEET_VERSIONS[detectedKey].name}" — verify or change above.`;
+  } else if (!detectedKey) {
+    document.getElementById('detectBanner').classList.remove('visible');
+  }
+}
+
+function applyVersionAndRebuild(versionKey) {
+  buildColumnSelectors(versionKey);
+  document.getElementById('colSection').style.display = '';
+}
+
+// ═══════════════════════════════════════════
+// COLUMN SELECTORS
+// ═══════════════════════════════════════════
+function buildColumnSelectors(versionKey) {
+  const paperSel = document.getElementById('paperCol');
+  const coderSel = document.getElementById('coderCol');
+  paperSel.innerHTML = '';
+  coderSel.innerHTML = '<option value="">(Wide format — coders are columns)</option>';
+
+  allColumns.forEach(c => {
+    paperSel.innerHTML += `<option value="${esc(c)}">${c}</option>`;
+    coderSel.innerHTML += `<option value="${esc(c)}">${c}</option>`;
+  });
+
+  // Paper col heuristic
+  const paperHint = allColumns.find(c => /paper|article|^id$|item|doi|title|zotero/i.test(c));
+  if (paperHint) paperSel.value = paperHint;
+
+  // Coder col: default to "Reviewer" if present, else heuristic
+  const reviewerCol = allColumns.find(c => c === 'Reviewer');
+  const coderHint = reviewerCol || allColumns.find(c => /coder|reviewer|rater/i.test(c));
+  if (coderHint) coderSel.value = coderHint; else coderSel.value = '';
+
+  buildColPicker(versionKey);
+  buildCoderList();
+
+  paperSel.onchange = () => buildColPicker(activeVersion);
+  coderSel.onchange = () => { buildColPicker(activeVersion); buildCoderList(); };
+
+  document.getElementById('selectAllBtn').onclick = () => {
+    document.querySelectorAll('.col-check').forEach(cb => {
+      if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+    });
+  };
+  document.getElementById('clearAllBtn').onclick = () => {
+    document.querySelectorAll('.col-check').forEach(cb => {
+      if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+    });
+  };
+}
+
+function buildColPicker(versionKey) {
+  const paperCol = document.getElementById('paperCol').value;
+  const coderCol = document.getElementById('coderCol').value;
+  const exclude = new Set([paperCol, coderCol].filter(Boolean));
+
+  // Determine which cols to pre-select
+  const versionCols = versionKey && SHEET_VERSIONS[versionKey]
+    ? new Set(SHEET_VERSIONS[versionKey].cols) : new Set();
+
+  // Filter: only pre-check cols that are in the version definition AND present in the file
+  // AND: for metric columns, only if at least one coder has a non-empty value
+  const metricsWithData = versionKey ? getMetricColsWithData(versionKey, coderCol, paperCol) : new Set(allColumns);
+
+  const picker = document.getElementById('colPicker');
+  picker.innerHTML = '';
+  selectedCols.clear();
+
+  allColumns.filter(c => !exclude.has(c)).forEach(c => {
+    const type = colTypes[c] || 'nominal';
+    const isMetricCol = /^Metric\d+-/.test(c);
+    const shouldPreCheck = versionCols.has(c) &&
+      (!isMetricCol || metricsWithData.has(c));
+
+    const wrap = document.createElement('div');
+
+    const item = document.createElement('label');
+    item.className = 'col-item';
+    item.innerHTML = `
+      <input type="checkbox" class="col-check" data-col="${esc(c)}" ${shouldPreCheck ? 'checked' : ''}>
+      <span class="col-name" title="${esc(c)}">${c.length > 28 ? c.slice(0,26)+'…' : c}</span>
+      <span class="col-type-badge ${type.slice(0,3)}">${type.slice(0,3).toUpperCase()}</span>
+    `;
+
+    const typeRow = document.createElement('div');
+    typeRow.className = `col-type-selector${shouldPreCheck ? ' visible' : ''}`;
+    ['nominal','ordinal','interval'].forEach(t => {
+      const btn = document.createElement('button');
+      btn.className = `type-btn ${type === t ? 'active-'+t.slice(0,3) : ''}`;
+      btn.textContent = t; btn.dataset.type = t;
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        colTypes[c] = t;
+        typeRow.querySelectorAll('.type-btn').forEach(b => {
+          b.className = `type-btn ${b.dataset.type === t ? 'active-'+t.slice(0,3) : ''}`;
+        });
+        item.querySelector('.col-type-badge').className = `col-type-badge ${t.slice(0,3)}`;
+        item.querySelector('.col-type-badge').textContent = t.slice(0,3).toUpperCase();
+      });
+      typeRow.appendChild(btn);
+    });
+
+    if (shouldPreCheck) selectedCols.add(c);
+
+    item.querySelector('.col-check').addEventListener('change', function() {
+      if (this.checked) { selectedCols.add(c); typeRow.classList.add('visible'); }
+      else { selectedCols.delete(c); typeRow.classList.remove('visible'); }
+      updatePickerCount();
+    });
+
+    wrap.appendChild(item); wrap.appendChild(typeRow); picker.appendChild(wrap);
+  });
+
+  updatePickerCount();
+}
+
+// For metric columns: only include if at least one row has a non-empty value for that column
+function getMetricColsWithData(versionKey, coderCol, paperCol) {
+  const result = new Set();
+  const vDef = SHEET_VERSIONS[versionKey];
+  if (!vDef) return result;
+
+  vDef.cols.forEach(col => {
+    if (!/^Metric\d+-/.test(col)) {
+      result.add(col); // always include non-metric cols
+      return;
+    }
+    // Check if any row has a non-empty value
+    const hasData = rawData.some(row => {
+      const v = row[col];
+      return v !== undefined && v !== null && String(v).trim() !== '';
+    });
+    if (hasData) result.add(col);
+  });
+
+  return result;
+}
+
+function updatePickerCount() {
+  document.getElementById('pickerCount').textContent = `${selectedCols.size} selected`;
+}
+
+function buildCoderList() {
+  const coderCol = document.getElementById('coderCol').value;
+  const coderMulti = document.getElementById('coderMulti');
+  coderMulti.innerHTML = '';
+
+  let coders = [];
+  if (coderCol) {
+    coders = [...new Set(rawData.map(r => String(r[coderCol])).filter(Boolean))];
+  }
+
+  coders.forEach(coder => {
+    const label = document.createElement('label');
+    label.className = 'col-item';
+    label.style.padding = '5px 6px';
+    label.innerHTML = `<input type="checkbox" class="coder-check" value="${esc(coder)}" checked>
+      <span class="col-name">${coder}</span>`;
+    coderMulti.appendChild(label);
+  });
+
+  // remove stale listener then re-add
+  const fc = document.getElementById('filterCoders');
+  const newFc = fc.cloneNode(true);
+  fc.parentNode.replaceChild(newFc, fc);
+  newFc.addEventListener('change', function() {
+    coderMulti.classList.toggle('visible', this.checked);
+  });
+}
+
+function esc(s) { return String(s).replace(/"/g,'&quot;'); }
+
+// ═══════════════════════════════════════════
+// METRIC UI
+// ═══════════════════════════════════════════
+document.querySelectorAll('.metric-item').forEach(item => {
+  item.addEventListener('change', () => {
+    item.classList.toggle('selected', item.querySelector('input').checked);
+  });
+});
+
+// ═══════════════════════════════════════════
+// RUN
+// ═══════════════════════════════════════════
+document.getElementById('runBtn').addEventListener('click', () => {
+  const paperCol = document.getElementById('paperCol').value;
+  const coderCol = document.getElementById('coderCol').value;
+  const cols = [...selectedCols];
+  const metrics = getSelectedMetrics();
+
+  const errors = [];
+  if (!paperCol) errors.push('Please select a Paper/Item ID column.');
+  if (cols.length === 0) errors.push('Please select at least one coding column.');
+  if (metrics.length === 0) errors.push('Please select at least one metric.');
+  if (errors.length) { showResults(null, errors, []); return; }
+
+  let wideData = coderCol
+    ? parseLong(rawData, paperCol, coderCol, cols)
+    : parseWide(rawData, paperCol, cols);
+
+  const filterOn = document.getElementById('filterCoders').checked;
+  if (filterOn) {
+    const allowed = new Set([...document.querySelectorAll('.coder-check:checked')].map(el => el.value));
+    Object.keys(wideData).forEach(pid => {
+      wideData[pid] = Object.fromEntries(Object.entries(wideData[pid]).filter(([cid]) => allowed.has(cid)));
+    });
+  }
+
+  const papers = Object.keys(wideData);
+  const coders = [...new Set(papers.flatMap(p => Object.keys(wideData[p])))];
+  const nCoders = coders.length;
+
+  const metricErrors = {}, metricWarnings = {};
+  metrics.forEach(m => {
+    metricErrors[m] = []; metricWarnings[m] = [];
+    if (m === 'cohen' && nCoders !== 2)
+      metricErrors[m].push(`Cohen's Kappa requires exactly 2 coders. Found ${nCoders}: ${coders.join(', ')}.`);
+    if (m === 'fleiss' && nCoders < 3)
+      metricErrors[m].push(`Fleiss' Kappa requires 3+ coders. Found ${nCoders}.`);
+    if (m === 'pairwise') {
+      const nP = (nCoders*(nCoders-1))/2;
+      if (nP > 45) metricWarnings[m].push(`${nCoders} coders → ${nP} pairs. Displaying aggregated results.`);
+    }
+  });
+
+  const rqResults = {};
+  cols.forEach(col => {
+    rqResults[col] = {};
+    metrics.forEach(m => {
+      rqResults[col][m] = metricErrors[m].length ? null : calcMetric(m, wideData, papers, coders, col);
+    });
+  });
+
+  const paperResults = {};
+  papers.forEach(pid => {
+    paperResults[pid] = {};
+    metrics.forEach(m => {
+      if (metricErrors[m].length) { paperResults[pid][m] = null; return; }
+      const vals = cols.map(c => calcMetric(m, {[pid]: wideData[pid]}, [pid], coders, c)).filter(v => v !== null);
+      paperResults[pid][m] = vals.length ? avg(vals) : null;
+    });
+  });
+
+  lastResults = { rqResults, paperResults, cols, papers, coders, metrics, metricErrors, metricWarnings, _wide: wideData };
+  showResults(lastResults, [], []);
+});
+
+function getSelectedMetrics() {
+  return [...document.querySelectorAll('[data-metric]')].filter(el => el.checked).map(el => el.dataset.metric);
+}
+
+// ═══════════════════════════════════════════
+// DATA PARSING
+// ═══════════════════════════════════════════
+function parseLong(data, paperCol, coderCol, cols) {
+  const wide = {};
+  data.forEach(row => {
+    const pid = String(row[paperCol]);
+    const cid = String(row[coderCol]);
+    if (!wide[pid]) wide[pid] = {};
+    if (!wide[pid][cid]) wide[pid][cid] = {};
+    cols.forEach(c => { wide[pid][cid][c] = row[c]; });
+  });
+  return wide;
+}
+
+function parseWide(data, paperCol, cols) {
+  const wide = {};
+  data.forEach(row => {
+    const pid = String(row[paperCol]);
+    if (!wide[pid]) wide[pid] = {};
+    cols.forEach(c => {
+      if (!wide[pid][c]) wide[pid][c] = {};
+      wide[pid][c][c] = row[c];
+    });
+  });
+  return wide;
+}
+
+// ═══════════════════════════════════════════
+// IRR MATH
+// ═══════════════════════════════════════════
+function avg(arr) { return arr.reduce((a,b) => a+b, 0)/arr.length; }
+
+function calcMetric(metric, wideData, papers, coders, col) {
+  const matrix = coders.map(coder =>
+    papers.map(paper => {
+      const v = wideData[paper]?.[coder]?.[col];
+      return (v === '' || v == null) ? null : v;
+    })
+  );
+  if (metric === 'alpha')    return krippendorffAlpha(matrix, colTypes[col] || 'nominal');
+  if (metric === 'pairwise') return pairwiseAgreement(matrix);
+  if (metric === 'cohen')    return cohensKappa(matrix);
+  if (metric === 'fleiss')   return fleissKappa(matrix, papers);
+  return null;
+}
+
+function pairwiseAgreement(matrix) {
+  const n = matrix[0].length;
+  const pairs = [];
+  for (let i = 0; i < matrix.length; i++) {
+    for (let j = i+1; j < matrix.length; j++) {
+      let agree = 0, total = 0;
+      for (let k = 0; k < n; k++) {
+        const a = matrix[i][k], b = matrix[j][k];
+        if (a !== null && b !== null) { total++; if (String(a) === String(b)) agree++; }
+      }
+      if (total > 0) pairs.push(agree/total);
+    }
+  }
+  return pairs.length ? avg(pairs) : null;
+}
+
+function cohensKappa(matrix) {
+  if (matrix.length !== 2) return null;
+  const [a, b] = matrix;
+  const n = a.length;
+  const cats = [...new Set([...a,...b].filter(v=>v!==null).map(String))];
+  const valid = a.map((v,i) => v!==null && b[i]!==null);
+  const N = valid.filter(Boolean).length;
+  if (N === 0 || cats.length === 0) return null;
+  let po = 0;
+  for (let i = 0; i < n; i++) if (valid[i] && String(a[i])===String(b[i])) po++;
+  po /= N;
+  let pe = 0;
+  cats.forEach(c => {
+    const pa = a.filter((v,i)=>valid[i]&&String(v)===c).length/N;
+    const pb = b.filter((v,i)=>valid[i]&&String(v)===c).length/N;
+    pe += pa*pb;
+  });
+  return pe >= 1 ? 1 : (po-pe)/(1-pe);
+}
+
+function fleissKappa(matrix, papers) {
+  const nR = matrix.length, nI = papers.length;
+  const catSet = new Set();
+  matrix.forEach(row => row.forEach(v => { if (v!==null) catSet.add(String(v)); }));
+  const cats = [...catSet];
+  if (!cats.length) return null;
+
+  const nij = papers.map((_,i) => {
+    const counts = Object.fromEntries(cats.map(c=>[c,0]));
+    matrix.forEach(row => { if (row[i]!==null) { const s=String(row[i]); if(counts[s]!==undefined) counts[s]++; } });
+    return counts;
+  });
+  const ni = nij.map(row => Object.values(row).reduce((a,b)=>a+b,0));
+  const N = ni.reduce((a,b)=>a+b,0);
+  if (!N) return null;
+
+  const Pi = nij.map((row,i) => {
+    const t = ni[i]; if (t<=1) return 0;
+    return cats.reduce((acc,c)=>acc+row[c]*(row[c]-1),0)/(t*(t-1));
+  });
+  const Pbar = avg(Pi);
+  const Pj = cats.map(c => nij.reduce((acc,row)=>acc+row[c],0)/N);
+  const Pe = Pj.reduce((acc,p)=>acc+p*p,0);
+  return Pe>=1 ? 1 : (Pbar-Pe)/(1-Pe);
+}
+
+function krippendorffAlpha(matrix, dataType) {
+  const nI = matrix[0].length;
+  const values = [];
+  matrix.forEach((row,o) => row.forEach((v,i) => {
+    if (v!==null) values.push({o,i,v:parseVal(v)});
+  }));
+  if (values.length < 2) return null;
+
+  const allVals = [...new Set(values.map(d=>d.v))].sort((a,b)=>a>b?1:-1);
+  const coincidences = {}, mu = {};
+  allVals.forEach(v => mu[v]=0);
+  let totalPairs = 0;
+
+  for (let i = 0; i < nI; i++) {
+    const iv = values.filter(d=>d.i===i);
+    const n = iv.length; if (n<2) continue;
+    for (let a = 0; a < iv.length; a++) {
+      for (let b = 0; b < iv.length; b++) {
+        if (a===b) continue;
+        const va=iv[a].v, vb=iv[b].v, w=1/(n-1);
+        const key=`${va}__${vb}`;
+        coincidences[key]=(coincidences[key]||0)+w;
+        mu[va]=(mu[va]||0)+w;
+        totalPairs+=w;
+      }
+    }
+  }
+  if (!totalPairs) return null;
+
+  let Do=0;
+  allVals.forEach(vk=>allVals.forEach(vl=>{
+    Do+=delta(vk,vl,dataType,allVals)*(coincidences[`${vk}__${vl}`]||0);
+  }));
+  Do/=totalPairs;
+
+  const muTotal=Object.values(mu).reduce((a,b)=>a+b,0);
+  let De=0;
+  allVals.forEach(vk=>allVals.forEach(vl=>{
+    De+=delta(vk,vl,dataType,allVals)*(mu[vk]||0)*(mu[vl]||0);
+  }));
+  De/=(muTotal*(muTotal-1));
+
+  return De===0 ? 1 : 1-Do/De;
+}
+
+function parseVal(v) { const n=Number(v); return isNaN(n)?String(v):n; }
+
+function delta(vk,vl,dataType,allVals) {
+  if (String(vk)===String(vl)) return 0;
+  if (dataType==='nominal') return 1;
+  if (dataType==='ordinal') {
+    const ki=allVals.indexOf(vk),li=allVals.indexOf(vl);
+    if (ki===-1||li===-1) return 1;
+    return Math.pow(Math.abs(ki-li),2);
+  }
+  const nk=Number(vk),nl=Number(vl);
+  return (isNaN(nk)||isNaN(nl)) ? 1 : Math.pow(nk-nl,2);
+}
+
+// ═══════════════════════════════════════════
+// DISPLAY
+// ═══════════════════════════════════════════
+const METRIC_LABELS = {
+  alpha:"Krippendorff's α", pairwise:'Pairwise %', cohen:"Cohen's κ", fleiss:"Fleiss' κ"
+};
+
+function fmtVal(v, isP) {
+  if (v===null||v===undefined) return '<span class="val-na">—</span>';
+  const n = isP ? v*100 : v;
+  const cls = n>=(isP?80:0.8)?'val-good':n>=(isP?60:0.6)?'val-fair':'val-poor';
+  return `<span class="${cls}">${n.toFixed(isP?1:3)}${isP?'%':''}</span>`;
+}
+function scoreClass(v) { return v===null?'na':v>=0.8?'good':v>=0.6?'fair':'poor'; }
+function scoreInterp(v) {
+  if (v===null) return 'N/A';
+  return v>=0.8?'● Strong':v>=0.6?'◐ Moderate':'○ Low';
+}
+
+function showResults(res, errors, warnings) {
+  const area = document.getElementById('resultsArea');
+  document.getElementById('emptyState').classList.add('hidden');
+  area.classList.remove('hidden');
+  area.innerHTML = '';
+
+  errors.forEach(e => area.innerHTML += banner('error','✖',e));
+  if (!res) return;
+
+  const {rqResults,paperResults,cols,papers,coders,metrics,metricErrors,metricWarnings,_wide} = res;
+  metrics.forEach(m => {
+    metricErrors[m].forEach(e => area.innerHTML += banner('error','✖',`<strong>${METRIC_LABELS[m]}:</strong> ${e}`));
+    metricWarnings[m].forEach(w => area.innerHTML += banner('warn','⚠',`<strong>${METRIC_LABELS[m]}:</strong> ${w}`));
+  });
+
+  const active = metrics.filter(m => !metricErrors[m].length);
+  const vName = activeVersion ? SHEET_VERSIONS[activeVersion].name : '';
+  const ts = new Date().toLocaleString();
+
+  area.innerHTML += `
+    <div class="results-header">
+      <div>
+        <div class="results-title">IRR Results</div>
+        <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} papers · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
+      </div>
+      <div class="export-btns">
+        <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+        <button class="export-btn" onclick="exportXLSX()">⬇ Export Excel</button>
+      </div>
+    </div>`;
+
+  if (!active.length) return;
+
+  // Summary cards
+  const sb = document.createElement('div'); sb.className = 'metric-block';
+  let sh = '<div class="metric-block-header"><span class="metric-block-title">Overall Summary</span><span class="metric-block-sub">Averaged across all variables & papers</span></div><div class="score-row">';
+  active.forEach(m => {
+    const vals = cols.map(c=>rqResults[c][m]).filter(v=>v!==null);
+    const ov = vals.length ? avg(vals) : null;
+    const isP = m==='pairwise';
+    const disp = ov!==null ? (isP?(ov*100).toFixed(1)+'%':ov.toFixed(3)) : '—';
+    sh += `<div class="score-cell">
+      <span class="score-value ${scoreClass(ov)}">${disp}</span>
+      <span class="score-label">${METRIC_LABELS[m]}</span>
+      <span class="score-interp">${scoreInterp(ov)}</span>
+    </div>`;
+  });
+  sh += '</div>'; sb.innerHTML = sh; area.appendChild(sb);
+
+  // RQ table
+  const rb = document.createElement('div'); rb.className = 'metric-block';
+  let rh = `<div class="section-header">Variable-Level Results <span class="pill">${cols.length} coding variables</span></div>
+    <div class="rq-table-wrap"><table>
+    <thead><tr><th>Variable</th><th>Type</th>${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}</tr></thead><tbody>`;
+  cols.forEach(col => {
+    const tm = {nominal:'NOM',ordinal:'ORD',interval:'INT'};
+    const tc = {nominal:'nom',ordinal:'ord',interval:'int'};
+    const t = colTypes[col]||'nominal';
+    rh += `<tr><td style="font-family:var(--mono);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${col}">${col}</td>
+      <td><span class="col-type-badge ${tc[t]}">${tm[t]||t}</span></td>
+      ${active.map(m=>`<td>${fmtVal(rqResults[col][m],m==='pairwise')}</td>`).join('')}</tr>`;
+  });
+  const avgVals = active.map(m => { const v=cols.map(c=>rqResults[c][m]).filter(v=>v!==null); return v.length?avg(v):null; });
+  rh += `<tr style="background:var(--surface3)"><td style="font-weight:600;font-family:var(--mono)">AVERAGE</td><td>—</td>${avgVals.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}</tr>`;
+  rh += '</tbody></table></div>'; rb.innerHTML = rh; area.appendChild(rb);
+
+  // Paper table
+  const pb = document.createElement('div'); pb.className = 'metric-block';
+  let ph = `<div class="section-header">Paper-Level Results <span class="pill">averaged across variables per paper</span></div>
+    <div class="rq-table-wrap"><table>
+    <thead><tr><th>Paper ID</th>${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}</tr></thead><tbody>`;
+  papers.forEach(pid => {
+    ph += `<tr><td style="font-family:var(--mono)">${pid}</td>${active.map(m=>`<td>${fmtVal(paperResults[pid][m],m==='pairwise')}</td>`).join('')}</tr>`;
+  });
+  const papAvg = active.map(m => { const v=papers.map(p=>paperResults[p][m]).filter(v=>v!==null); return v.length?avg(v):null; });
+  ph += `<tr style="background:var(--surface3)"><td style="font-weight:600;font-family:var(--mono)">AVERAGE</td>${papAvg.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}</tr>`;
+  ph += '</tbody></table></div>'; pb.innerHTML = ph; area.appendChild(pb);
+
+  // Pairwise detail
+  if (active.includes('pairwise') && coders.length >= 2) {
+    const pairs = [];
+    for (let i=0;i<coders.length;i++) for (let j=i+1;j<coders.length;j++) pairs.push([coders[i],coders[j]]);
+    const pairBlock = document.createElement('div'); pairBlock.className = 'metric-block';
+    let pairH = `<div class="section-header">Pairwise Agreement Detail <span class="pill">${pairs.length} pair${pairs.length>1?'s':''}</span></div>
+      <div class="rq-table-wrap"><table>
+      <thead><tr><th>Pair</th>${cols.map(c=>`<th title="${c}">${c.length>14?c.slice(0,12)+'…':c}</th>`).join('')}<th>Avg</th></tr></thead><tbody>`;
+
+    pairs.forEach(([ca,cb]) => {
+      const colVals = cols.map(col => {
+        const mat = [[],[]];
+        papers.forEach(p => {
+          mat[0].push(_wide[p]?.[ca]?.[col]??null);
+          mat[1].push(_wide[p]?.[cb]?.[col]??null);
+        });
+        return pairwiseAgreement(mat);
+      });
+      const rowAvg = colVals.filter(v=>v!==null).length ? avg(colVals.filter(v=>v!==null)) : null;
+      pairH += `<tr><td><span class="pair-badge">👤 ${ca} × ${cb}</span></td>${colVals.map(v=>`<td>${fmtVal(v,true)}</td>`).join('')}<td>${fmtVal(rowAvg,true)}</td></tr>`;
+    });
+    pairH += '</tbody></table></div>'; pairBlock.innerHTML = pairH; area.appendChild(pairBlock);
+  }
+}
+
+function banner(type,icon,msg) {
+  return `<div class="banner ${type}"><span class="banner-icon">${icon}</span><span>${msg}</span></div>`;
+}
+
+// ═══════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════
+function buildExportRows() {
+  if (!lastResults) return [];
+  const {rqResults,paperResults,cols,papers,metrics,metricErrors} = lastResults;
+  const active = metrics.filter(m=>!metricErrors[m].length);
+  const rows = [];
+
+  cols.forEach(col => {
+    const row = {Level:'Variable', ID:col, DataType:colTypes[col]||'nominal'};
+    active.forEach(m => {
+      const v = rqResults[col][m];
+      row[METRIC_LABELS[m]] = v!==null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
+    });
+    rows.push(row);
+  });
+
+  const avgRQ = {Level:'Variable',ID:'AVERAGE',DataType:''};
+  active.forEach(m => {
+    const v2 = cols.map(c=>rqResults[c][m]).filter(v=>v!==null);
+    avgRQ[METRIC_LABELS[m]] = v2.length ? (m==='pairwise'?(avg(v2)*100).toFixed(1)+'%':avg(v2).toFixed(4)) : 'N/A';
+  });
+  rows.push(avgRQ); rows.push({});
+
+  papers.forEach(pid => {
+    const row = {Level:'Paper',ID:pid,DataType:''};
+    active.forEach(m => {
+      const v = paperResults[pid][m];
+      row[METRIC_LABELS[m]] = v!==null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
+    });
+    rows.push(row);
+  });
+  const avgP = {Level:'Paper',ID:'AVERAGE',DataType:''};
+  active.forEach(m => {
+    const v2 = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
+    avgP[METRIC_LABELS[m]] = v2.length ? (m==='pairwise'?(avg(v2)*100).toFixed(1)+'%':avg(v2).toFixed(4)) : 'N/A';
+  });
+  rows.push(avgP);
+  return rows;
+}
+
+function exportCSV() {
+  const rows = buildExportRows(); if (!rows.length) return;
+  const keys = Object.keys(rows.find(r=>Object.keys(r).length>0));
+  const lines = [keys.join(','), ...rows.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(','))];
+  dlBlob(new Blob([lines.join('\n')],{type:'text/csv'}), 'irr_results.csv');
+}
+
+function exportXLSX() {
+  const rows = buildExportRows();
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'IRR Results');
+  XLSX.writeFile(wb, 'irr_results.xlsx');
+}
+
+function dlBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
