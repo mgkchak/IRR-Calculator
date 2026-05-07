@@ -356,6 +356,143 @@
     font-size: 11px; color: var(--text-dim); line-height: 1.7;
   }
   .preview-strip strong { color: var(--accent3); }
+
+  /* ── Summary side-by-side layout ── */
+  .summary-body {
+    display: flex;
+    min-height: 0;
+  }
+  .summary-left {
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+  .summary-right {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .summary-right-label {
+    padding: 10px 16px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .rq-cards-scroll {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    flex: 1;
+    gap: 1px;
+    background: var(--border);
+  }
+  .rq-cards-scroll::-webkit-scrollbar { height: 4px; }
+  .rq-cards-scroll::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+  .score-cell-rq {
+    background: var(--surface2);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 150px;
+    flex-shrink: 0;
+  }
+  .score-rq-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-bottom: 2px;
+    white-space: nowrap;
+  }
+  .score-metric-row { display: flex; align-items: baseline; gap: 6px; }
+  .score-mini-val { font-family: var(--mono); font-size: 20px; font-weight: 500; line-height: 1; }
+  .score-mini-val.good { color: var(--accent3); }
+  .score-mini-val.fair { color: var(--warn); }
+  .score-mini-val.poor { color: var(--error); }
+  .score-mini-val.na   { color: var(--text-faint); font-size: 14px; }
+  .score-mini-label { font-family: var(--mono); font-size: 9px; color: var(--text-faint); }
+  .paper-index {
+    display: inline-block;
+    font-family: var(--mono); font-size: 9px;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--surface3); color: var(--text-dim);
+    border: 1px solid var(--border);
+    margin-left: 8px; vertical-align: middle;
+    max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── Expandable rows ── */
+  .paper-row { cursor: pointer; }
+  .paper-row:hover td { background: rgba(107,138,253,.06) !important; }
+  .paper-row td:first-child::before {
+    content: '▶';
+    display: inline-block;
+    font-size: 9px;
+    margin-right: 8px;
+    color: var(--text-faint);
+    transition: transform .2s;
+  }
+  .paper-row.expanded td:first-child::before { transform: rotate(90deg); color: var(--accent); }
+
+  .rq-expand-row { display: none; }
+  .rq-expand-row.visible { display: table-row; }
+  .rq-expand-cell {
+    padding: 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  .rq-inner {
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 0;
+  }
+  .rq-inner-header {
+    padding: 8px 16px 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface3);
+  }
+  .rq-inner table { background: var(--bg); }
+  .rq-inner thead tr { background: var(--surface2); }
+  .rq-inner th {
+    padding: 7px 14px;
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+  .rq-inner td {
+    padding: 7px 14px;
+    font-size: 11px;
+    border-bottom: 1px solid rgba(46,53,79,.5);
+  }
+  .rq-inner tr:last-child td { border-bottom: none; }
+  .rq-inner tbody tr:hover td { background: rgba(255,255,255,.015); }
+
+  /* variable-summary section toggle */
+  .section-toggle-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 600; color: var(--text-dim);
+    letter-spacing: .3px; display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none; transition: background .15s;
+  }
+  .section-toggle-header:hover { background: rgba(255,255,255,.02); }
+  .section-toggle-header .toggle-arrow {
+    margin-left: auto; font-size: 10px; color: var(--text-faint); transition: transform .2s;
+  }
+  .section-toggle-header.open .toggle-arrow { transform: rotate(180deg); }
+  .section-toggle-body { display: none; }
+  .section-toggle-body.open { display: block; }
 </style>
 </head>
 <body>
@@ -366,9 +503,7 @@
     <h1>Inter-Rater Reliability Calculator</h1>
     <p>Learning Data Insights · GenAI Evidence Hub</p>
   </div>
-  <div class="header-right">
-    <span class="badge">v1.1</span>
-  </div>
+  <div class="header-right"></div>
 </header>
 
 <div class="app-body">
@@ -786,8 +921,9 @@ function buildColumnSelectors(versionKey) {
     coderSel.innerHTML += `<option value="${esc(c)}">${c}</option>`;
   });
 
-  // Paper col heuristic
-  const paperHint = allColumns.find(c => /paper|article|^id$|item|doi|title|zotero/i.test(c));
+  // Paper col: default to "Research Question ID" if present, then fallback heuristic
+  const rqIdCol = allColumns.find(c => c === 'Research Question ID');
+  const paperHint = rqIdCol || allColumns.find(c => /paper|article|^id$|item|doi|title|zotero/i.test(c));
   if (paperHint) paperSel.value = paperHint;
 
   // Coder col: default to "Reviewer" if present, else heuristic
@@ -970,7 +1106,14 @@ document.getElementById('runBtn').addEventListener('click', () => {
     });
   }
 
-  const papers = Object.keys(wideData);
+  const ARTIFACT_ROW = 'numerical (index identifier)';
+  const papers = Object.keys(wideData).filter(pid => {
+    const t = pid.trim();
+    if (!t) return false;
+    if (/^\d+$/.test(t)) return false;
+    if (t.toLowerCase() === ARTIFACT_ROW) return false;
+    return true;
+  });
   const coders = [...new Set(papers.flatMap(p => Object.keys(wideData[p])))];
   const nCoders = coders.length;
 
@@ -1005,7 +1148,53 @@ document.getElementById('runBtn').addEventListener('click', () => {
     });
   });
 
-  lastResults = { rqResults, paperResults, cols, papers, coders, metrics, metricErrors, metricWarnings, _wide: wideData };
+  // Build paper index map and label map (Research Question text, truncated)
+  const paperIndexMap = {};
+  const paperLabelMap = {}; // pid -> truncated Research Question text
+  const RQ_TEXT_COL = 'Research Question';
+  papers.forEach((pid, i) => {
+    paperIndexMap[pid] = i + 1;
+    // Find first rawData row matching this pid to get the RQ text
+    const matchRow = rawData.find(row => String(row[paperCol]) === pid);
+    const rqText = matchRow && matchRow[RQ_TEXT_COL]
+      ? String(matchRow[RQ_TEXT_COL]).trim() : '';
+    paperLabelMap[pid] = rqText.length > 52 ? rqText.slice(0, 50) + '…' : rqText;
+  });
+
+  // Build RQ ID grouped results: rqId -> { m -> avg IRR across papers in that RQ }
+  const RQ_COL = 'Research Question ID';
+  const rqIdResults = {};
+  const rqIdPapers = {}; // rqId -> Set of pids
+
+  if (paperCol === RQ_COL) {
+    // Papers are already keyed by RQ ID — each paper IS an RQ
+    papers.forEach(pid => {
+      if (!rqIdPapers[pid]) rqIdPapers[pid] = new Set();
+      rqIdPapers[pid].add(pid);
+    });
+  } else if (allColumns.includes(RQ_COL)) {
+    // Long format: look up RQ ID from the raw data rows
+    rawData.forEach(row => {
+      const pid = String(row[paperCol]);
+      const rqId = row[RQ_COL] !== undefined && String(row[RQ_COL]).trim() !== ''
+        ? String(row[RQ_COL]).trim() : null;
+      if (!rqId || !wideData[pid] || !papers.includes(pid)) return;
+      if (!rqIdPapers[rqId]) rqIdPapers[rqId] = new Set();
+      rqIdPapers[rqId].add(pid);
+    });
+  }
+
+  Object.entries(rqIdPapers).forEach(([rqId, pidSet]) => {
+    const rqPapers = [...pidSet];
+    rqIdResults[rqId] = {};
+    metrics.forEach(m => {
+      if (metricErrors[m].length) { rqIdResults[rqId][m] = null; return; }
+      const vals = rqPapers.map(pid => paperResults[pid][m]).filter(v => v !== null);
+      rqIdResults[rqId][m] = vals.length ? avg(vals) : null;
+    });
+  });
+
+  lastResults = { rqResults, paperResults, rqIdResults, rqIdPapers, paperIndexMap, paperLabelMap, cols, papers, coders, metrics, metricErrors, metricWarnings, _wide: wideData, _paperCol: paperCol };
   showResults(lastResults, [], []);
 });
 
@@ -1209,7 +1398,9 @@ function showResults(res, errors, warnings) {
   errors.forEach(e => area.innerHTML += banner('error','✖',e));
   if (!res) return;
 
-  const {rqResults,paperResults,cols,papers,coders,metrics,metricErrors,metricWarnings,_wide} = res;
+  const {rqResults, paperResults, rqIdResults, rqIdPapers, paperIndexMap, paperLabelMap,
+         cols, papers, coders, metrics, metricErrors, metricWarnings, _wide} = res;
+
   metrics.forEach(m => {
     metricErrors[m].forEach(e => area.innerHTML += banner('error','✖',`<strong>${METRIC_LABELS[m]}:</strong> ${e}`));
     metricWarnings[m].forEach(w => area.innerHTML += banner('warn','⚠',`<strong>${METRIC_LABELS[m]}:</strong> ${w}`));
@@ -1219,71 +1410,200 @@ function showResults(res, errors, warnings) {
   const vName = activeVersion ? SHEET_VERSIONS[activeVersion].name : '';
   const ts = new Date().toLocaleString();
 
-  area.innerHTML += `
-    <div class="results-header">
-      <div>
-        <div class="results-title">IRR Results</div>
-        <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} papers · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
-      </div>
-      <div class="export-btns">
-        <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
-        <button class="export-btn" onclick="exportXLSX()">⬇ Export Excel</button>
-      </div>
+  // ── Header ──
+  const hdr = document.createElement('div');
+  hdr.className = 'results-header';
+  hdr.innerHTML = `
+    <div>
+      <div class="results-title">IRR Results</div>
+      <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} papers · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
+    </div>
+    <div class="export-btns">
+      <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+      <button class="export-btn" onclick="exportXLSX()">⬇ Export Excel</button>
     </div>`;
+  area.appendChild(hdr);
 
   if (!active.length) return;
 
-  // Summary cards
-  const sb = document.createElement('div'); sb.className = 'metric-block';
-  let sh = '<div class="metric-block-header"><span class="metric-block-title">Overall Summary</span><span class="metric-block-sub">Averaged across all variables & papers</span></div><div class="score-row">';
+  // ── 1. OVERALL SUMMARY ──
+  // Overall average = avg of paper-level IRR across all papers
+  const overallAvg = {};
   active.forEach(m => {
-    const vals = cols.map(c=>rqResults[c][m]).filter(v=>v!==null);
-    const ov = vals.length ? avg(vals) : null;
-    const isP = m==='pairwise';
-    const disp = ov!==null ? (isP?(ov*100).toFixed(1)+'%':ov.toFixed(3)) : '—';
-    sh += `<div class="score-cell">
+    const vals = papers.map(p => paperResults[p][m]).filter(v => v !== null);
+    overallAvg[m] = vals.length ? avg(vals) : null;
+  });
+
+  const rqIds = Object.keys(rqIdResults).sort((a,b) => {
+    // Sort RQ IDs naturally: 1.1, 1.2, 2.1, etc.
+    const na = a.split('.').map(Number), nb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+      const d = (na[i]||0) - (nb[i]||0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  });
+  const showRQCards = rqIds.length > 0;
+
+  const sb = document.createElement('div');
+  sb.className = 'metric-block';
+
+  // Header
+  let sh = `<div class="metric-block-header">
+    <span class="metric-block-title">Overall Summary</span>
+    <span class="metric-block-sub">Average IRR · ${papers.length} paper${papers.length!==1?'s':''}</span>
+  </div>`;
+
+  // Side-by-side body
+  sh += '<div class="summary-body">';
+
+  // LEFT: overall score cells stacked
+  sh += '<div class="summary-left">';
+  active.forEach(m => {
+    const ov = overallAvg[m];
+    const isP = m === 'pairwise';
+    const disp = ov !== null ? (isP ? (ov*100).toFixed(1)+'%' : ov.toFixed(3)) : '—';
+    sh += `<div class="score-cell" style="flex:1;border-bottom:1px solid var(--border);">
       <span class="score-value ${scoreClass(ov)}">${disp}</span>
       <span class="score-label">${METRIC_LABELS[m]}</span>
       <span class="score-interp">${scoreInterp(ov)}</span>
     </div>`;
   });
-  sh += '</div>'; sb.innerHTML = sh; area.appendChild(sb);
+  sh += '</div>'; // end summary-left
 
-  // RQ table
-  const rb = document.createElement('div'); rb.className = 'metric-block';
-  let rh = `<div class="section-header">Variable-Level Results <span class="pill">${cols.length} coding variables</span></div>
-    <div class="rq-table-wrap"><table>
-    <thead><tr><th>Variable</th><th>Type</th>${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}</tr></thead><tbody>`;
-  cols.forEach(col => {
-    const tm = {nominal:'NOM',ordinal:'ORD',interval:'INT'};
-    const tc = {nominal:'nom',ordinal:'ord',interval:'int'};
-    const t = colTypes[col]||'nominal';
-    rh += `<tr><td style="font-family:var(--mono);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${col}">${col}</td>
-      <td><span class="col-type-badge ${tc[t]}">${tm[t]||t}</span></td>
-      ${active.map(m=>`<td>${fmtVal(rqResults[col][m],m==='pairwise')}</td>`).join('')}</tr>`;
+  // RIGHT: subheading + scrollable RQ cards
+  sh += '<div class="summary-right">';
+  sh += `<div class="summary-right-label">By Research Question ID</div>`;
+  sh += '<div class="rq-cards-scroll">';
+  if (showRQCards) {
+    rqIds.forEach(rqId => {
+      const paperCount = rqIdPapers[rqId] ? rqIdPapers[rqId].size : 0;
+      sh += `<div class="score-cell-rq">
+        <div class="score-rq-id">RQ ${rqId} <span style="opacity:.55">(${paperCount} paper${paperCount!==1?'s':''})</span></div>`;
+      active.forEach(m => {
+        const v = rqIdResults[rqId][m];
+        const isP = m === 'pairwise';
+        const disp = v !== null ? (isP ? (v*100).toFixed(1)+'%' : v.toFixed(3)) : '—';
+        sh += `<div class="score-metric-row">
+          <span class="score-mini-val ${scoreClass(v)}">${disp}</span>
+          <span class="score-mini-label">${METRIC_LABELS[m]}</span>
+        </div>`;
+      });
+      sh += '</div>';
+    });
+  } else {
+    sh += `<div style="padding:20px 18px;font-family:var(--mono);font-size:11px;color:var(--text-faint);">No Research Question ID column found in data.</div>`;
+  }
+  sh += '</div>'; // end rq-cards-scroll
+  sh += '</div>'; // end summary-right
+  sh += '</div>'; // end summary-body
+
+  sb.innerHTML = sh;
+  area.appendChild(sb);
+
+  // ── 2. PAPER-LEVEL TABLE with expandable RQ rows ──
+  const pb = document.createElement('div');
+  pb.className = 'metric-block';
+
+  const papAvg = active.map(m => {
+    const v = papers.map(p => paperResults[p][m]).filter(v => v !== null);
+    return v.length ? avg(v) : null;
   });
-  const avgVals = active.map(m => { const v=cols.map(c=>rqResults[c][m]).filter(v=>v!==null); return v.length?avg(v):null; });
-  rh += `<tr style="background:var(--surface3)"><td style="font-weight:600;font-family:var(--mono)">AVERAGE</td><td>—</td>${avgVals.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}</tr>`;
-  rh += '</tbody></table></div>'; rb.innerHTML = rh; area.appendChild(rb);
 
-  // Paper table
-  const pb = document.createElement('div'); pb.className = 'metric-block';
-  let ph = `<div class="section-header">Paper-Level Results <span class="pill">averaged across variables per paper</span></div>
+  let ph = `
+    <div class="section-header">
+      Paper-Level IRR
+      <span class="pill">${papers.length} papers</span>
+      <span class="pill" style="color:var(--accent);border-color:rgba(107,138,253,.3)">▶ click row for variable detail</span>
+    </div>
     <div class="rq-table-wrap"><table>
-    <thead><tr><th>Paper ID</th>${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}</tr></thead><tbody>`;
-  papers.forEach(pid => {
-    ph += `<tr><td style="font-family:var(--mono)">${pid}</td>${active.map(m=>`<td>${fmtVal(paperResults[pid][m],m==='pairwise')}</td>`).join('')}</tr>`;
-  });
-  const papAvg = active.map(m => { const v=papers.map(p=>paperResults[p][m]).filter(v=>v!==null); return v.length?avg(v):null; });
-  ph += `<tr style="background:var(--surface3)"><td style="font-weight:600;font-family:var(--mono)">AVERAGE</td>${papAvg.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}</tr>`;
-  ph += '</tbody></table></div>'; pb.innerHTML = ph; area.appendChild(pb);
+    <thead><tr>
+      <th>${res._paperCol || 'Paper ID'}</th>
+      ${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}
+    </tr></thead><tbody>`;
 
-  // Pairwise detail
+  const tc = {nominal:'nom',ordinal:'ord',interval:'int'};
+  const tm = {nominal:'NOM',ordinal:'ORD',interval:'INT'};
+
+  papers.forEach((pid, pi) => {
+    const rowId = `rq-expand-${pi}`;
+    const idx = paperIndexMap[pid];
+    const label = paperLabelMap[pid];
+    // Display: RQ ID + research question label chip (no numeric index in display)
+    const labelChip = label
+      ? `<span class="paper-index" title="${label}">${label}</span>`
+      : '';
+    const pidDisplay = `${pid}${labelChip}`;
+
+    ph += `<tr class="paper-row" data-target="${rowId}">
+      <td style="font-family:var(--mono)">${pidDisplay}</td>
+      ${active.map(m=>`<td>${fmtVal(paperResults[pid][m],m==='pairwise')}</td>`).join('')}
+    </tr>`;
+
+    let innerRows = '';
+    cols.forEach(col => {
+      const t = colTypes[col]||'nominal';
+      const perPaperColVals = active.map(m =>
+        metricErrors[m].length ? null : calcMetric(m, {[pid]: _wide[pid]}, [pid], coders, col)
+      );
+      innerRows += `<tr>
+        <td style="font-family:var(--mono);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:28px" title="${col}">${col}</td>
+        <td><span class="col-type-badge ${tc[t]}">${tm[t]}</span></td>
+        ${perPaperColVals.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}
+      </tr>`;
+    });
+
+    ph += `<tr class="rq-expand-row" id="${rowId}">
+      <td class="rq-expand-cell" colspan="${1 + active.length}">
+        <div class="rq-inner">
+          <div class="rq-inner-header">Variable-level IRR · ${pid}${label ? ' — '+label : ''}</div>
+          <div class="rq-table-wrap"><table>
+            <thead><tr>
+              <th>Variable</th><th>Type</th>
+              ${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}
+            </tr></thead>
+            <tbody>${innerRows}</tbody>
+          </table></div>
+        </div>
+      </td>
+    </tr>`;
+  });
+
+  ph += `<tr style="background:var(--surface3)">
+    <td style="font-weight:600;font-family:var(--mono)">AVERAGE</td>
+    ${papAvg.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}
+  </tr>`;
+  ph += '</tbody></table></div>';
+  pb.innerHTML = ph;
+
+  pb.querySelectorAll('.paper-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const target = document.getElementById(row.dataset.target);
+      const isOpen = target.classList.contains('visible');
+      pb.querySelectorAll('.rq-expand-row.visible').forEach(r => r.classList.remove('visible'));
+      pb.querySelectorAll('.paper-row.expanded').forEach(r => r.classList.remove('expanded'));
+      if (!isOpen) {
+        target.classList.add('visible');
+        row.classList.add('expanded');
+      }
+    });
+  });
+
+  area.appendChild(pb);
+
+  // ── 3. PAIRWISE DETAIL (collapsible) ──
   if (active.includes('pairwise') && coders.length >= 2) {
     const pairs = [];
     for (let i=0;i<coders.length;i++) for (let j=i+1;j<coders.length;j++) pairs.push([coders[i],coders[j]]);
-    const pairBlock = document.createElement('div'); pairBlock.className = 'metric-block';
-    let pairH = `<div class="section-header">Pairwise Agreement Detail <span class="pill">${pairs.length} pair${pairs.length>1?'s':''}</span></div>
+    const pairBlock = document.createElement('div');
+    pairBlock.className = 'metric-block';
+
+    let pairHtml = `<div class="section-toggle-header" id="pairToggleHdr">
+      Pairwise Agreement Detail
+      <span class="pill">${pairs.length} pair${pairs.length>1?'s':''}</span>
+      <span class="toggle-arrow">▼</span>
+    </div>
+    <div class="section-toggle-body" id="pairToggleBody">
       <div class="rq-table-wrap"><table>
       <thead><tr><th>Pair</th>${cols.map(c=>`<th title="${c}">${c.length>14?c.slice(0,12)+'…':c}</th>`).join('')}<th>Avg</th></tr></thead><tbody>`;
 
@@ -1297,9 +1617,22 @@ function showResults(res, errors, warnings) {
         return pairwiseAgreement(mat);
       });
       const rowAvg = colVals.filter(v=>v!==null).length ? avg(colVals.filter(v=>v!==null)) : null;
-      pairH += `<tr><td><span class="pair-badge">👤 ${ca} × ${cb}</span></td>${colVals.map(v=>`<td>${fmtVal(v,true)}</td>`).join('')}<td>${fmtVal(rowAvg,true)}</td></tr>`;
+      pairHtml += `<tr>
+        <td><span class="pair-badge">👤 ${ca} × ${cb}</span></td>
+        ${colVals.map(v=>`<td>${fmtVal(v,true)}</td>`).join('')}
+        <td>${fmtVal(rowAvg,true)}</td>
+      </tr>`;
     });
-    pairH += '</tbody></table></div>'; pairBlock.innerHTML = pairH; area.appendChild(pairBlock);
+
+    pairHtml += '</tbody></table></div></div>';
+    pairBlock.innerHTML = pairHtml;
+
+    pairBlock.querySelector('#pairToggleHdr').addEventListener('click', () => {
+      pairBlock.querySelector('#pairToggleHdr').classList.toggle('open');
+      pairBlock.querySelector('#pairToggleBody').classList.toggle('open');
+    });
+
+    area.appendChild(pairBlock);
   }
 }
 
@@ -1312,40 +1645,43 @@ function banner(type,icon,msg) {
 // ═══════════════════════════════════════════
 function buildExportRows() {
   if (!lastResults) return [];
-  const {rqResults,paperResults,cols,papers,metrics,metricErrors} = lastResults;
+  const {rqResults, paperResults, rqIdResults, rqIdPapers, paperIndexMap,
+         cols, papers, metrics, metricErrors} = lastResults;
   const active = metrics.filter(m=>!metricErrors[m].length);
   const rows = [];
 
-  cols.forEach(col => {
-    const row = {Level:'Variable', ID:col, DataType:colTypes[col]||'nominal'};
-    active.forEach(m => {
-      const v = rqResults[col][m];
-      row[METRIC_LABELS[m]] = v!==null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
+  // RQ ID summary rows
+  const rqIds = Object.keys(rqIdResults).sort();
+  if (rqIds.length) {
+    rqIds.forEach(rqId => {
+      const row = { Level: 'Research Question', ID: rqId, 'Paper Index': '', DataType: '' };
+      active.forEach(m => {
+        const v = rqIdResults[rqId][m];
+        row[METRIC_LABELS[m]] = v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
+      });
+      rows.push(row);
     });
-    rows.push(row);
-  });
+    rows.push({});
+  }
 
-  const avgRQ = {Level:'Variable',ID:'AVERAGE',DataType:''};
-  active.forEach(m => {
-    const v2 = cols.map(c=>rqResults[c][m]).filter(v=>v!==null);
-    avgRQ[METRIC_LABELS[m]] = v2.length ? (m==='pairwise'?(avg(v2)*100).toFixed(1)+'%':avg(v2).toFixed(4)) : 'N/A';
-  });
-  rows.push(avgRQ); rows.push({});
-
+  // Paper rows (label + numeric index)
   papers.forEach(pid => {
-    const row = {Level:'Paper',ID:pid,DataType:''};
+    const row = { Level: 'Paper', ID: pid, 'Paper Index': paperIndexMap[pid], DataType: '' };
     active.forEach(m => {
       const v = paperResults[pid][m];
-      row[METRIC_LABELS[m]] = v!==null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
+      row[METRIC_LABELS[m]] = v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
     });
     rows.push(row);
   });
-  const avgP = {Level:'Paper',ID:'AVERAGE',DataType:''};
+
+  // Paper average row
+  const avgP = { Level: 'Paper', ID: 'AVERAGE', 'Paper Index': '', DataType: '' };
   active.forEach(m => {
     const v2 = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
     avgP[METRIC_LABELS[m]] = v2.length ? (m==='pairwise'?(avg(v2)*100).toFixed(1)+'%':avg(v2).toFixed(4)) : 'N/A';
   });
   rows.push(avgP);
+
   return rows;
 }
 
