@@ -68,7 +68,7 @@
     grid-template-columns: 340px 1fr;
     flex: 1;
     overflow: hidden;
-    height: calc(100vh - 69px);
+    height: calc(100vh - 69px - 58px);
   }
 
   .sidebar {
@@ -350,17 +350,15 @@
     background: var(--surface3); border: 1px solid var(--border-bright);
     color: var(--text-faint); font-size: 9px; font-family: var(--mono);
     cursor: help; margin-left: 6px; vertical-align: middle;
-    position: relative;
+    position: relative; z-index: 10;
   }
   .info-tooltip:hover .tooltip-body {
     display: block;
   }
   .tooltip-body {
     display: none;
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%; transform: translateX(-50%);
-    width: 280px;
+    position: fixed;
+    width: 300px;
     background: var(--surface3);
     border: 1px solid var(--border-bright);
     border-radius: 8px;
@@ -369,17 +367,12 @@
     font-family: var(--mono);
     color: var(--text-dim);
     line-height: 1.6;
-    z-index: 100;
+    z-index: 1000;
     pointer-events: none;
     white-space: normal;
     text-align: left;
-  }
-  .tooltip-body::after {
-    content: '';
-    position: absolute;
-    top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: var(--border-bright);
+    transform: translateX(-50%);
+    margin-top: 8px;
   }
 
 
@@ -387,6 +380,38 @@
   ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
 
   .hidden { display: none !important; }
+
+  .app-footer {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 10px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .footer-credit {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1.5;
+  }
+  .footer-credit strong { color: var(--text-dim); }
+  .footer-divider {
+    width: 1px; height: 24px;
+    background: var(--border-bright);
+    flex-shrink: 0;
+  }
+  .footer-experimental {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    padding: 3px 10px;
+    border-radius: 100px;
+    border: 1px solid var(--border-bright);
+    background: var(--surface2);
+  }
 
   .preview-strip {
     background: var(--surface2); border: 1px solid var(--border);
@@ -597,22 +622,6 @@
     <!-- 03 Configure Columns -->
     <div class="sidebar-section" id="colSection" style="display:none;">
       <div class="section-label">03 — Configure Columns</div>
-
-      <div class="ctrl-row">
-        <label class="ctrl-label">Paper / Item ID column</label>
-        <div class="select-wrapper">
-          <select id="paperCol"></select>
-        </div>
-      </div>
-
-      <div class="ctrl-row">
-        <label class="ctrl-label">Coder ID column</label>
-        <div class="select-wrapper">
-          <select id="coderCol">
-            <option value="">(Wide format — coders are columns)</option>
-          </select>
-        </div>
-      </div>
 
       <div class="ctrl-row">
         <label class="ctrl-label">IRR columns
@@ -948,32 +957,13 @@ function applyVersionAndRebuild(versionKey) {
 // ═══════════════════════════════════════════
 // COLUMN SELECTORS
 // ═══════════════════════════════════════════
+const FIXED_PAPER_COL = 'Research Question ID';
+const FIXED_CODER_COL = 'Reviewer';
+const EXCLUDED_CODERS = new Set(['string']); // lowercase for case-insensitive match
+
 function buildColumnSelectors(versionKey) {
-  const paperSel = document.getElementById('paperCol');
-  const coderSel = document.getElementById('coderCol');
-  paperSel.innerHTML = '';
-  coderSel.innerHTML = '<option value="">(Wide format — coders are columns)</option>';
-
-  allColumns.forEach(c => {
-    paperSel.innerHTML += `<option value="${esc(c)}">${c}</option>`;
-    coderSel.innerHTML += `<option value="${esc(c)}">${c}</option>`;
-  });
-
-  // Paper col: default to "Research Question ID" if present, then fallback heuristic
-  const rqIdCol = allColumns.find(c => c === 'Research Question ID');
-  const paperHint = rqIdCol || allColumns.find(c => /paper|article|^id$|item|doi|title|zotero/i.test(c));
-  if (paperHint) paperSel.value = paperHint;
-
-  // Coder col: default to "Reviewer" if present, else heuristic
-  const reviewerCol = allColumns.find(c => c === 'Reviewer');
-  const coderHint = reviewerCol || allColumns.find(c => /coder|reviewer|rater/i.test(c));
-  if (coderHint) coderSel.value = coderHint; else coderSel.value = '';
-
   buildColPicker(versionKey);
   buildCoderList();
-
-  paperSel.onchange = () => buildColPicker(activeVersion);
-  coderSel.onchange = () => { buildColPicker(activeVersion); buildCoderList(); };
 
   document.getElementById('selectAllBtn').onclick = () => {
     document.querySelectorAll('.col-check').forEach(cb => {
@@ -988,9 +978,9 @@ function buildColumnSelectors(versionKey) {
 }
 
 function buildColPicker(versionKey) {
-  const paperCol = document.getElementById('paperCol').value;
-  const coderCol = document.getElementById('coderCol').value;
-  const exclude = new Set([paperCol, coderCol].filter(Boolean));
+  const paperCol = FIXED_PAPER_COL;
+  const coderCol = FIXED_CODER_COL;
+  const exclude = new Set([paperCol, coderCol]);
 
   // Determine which cols to pre-select
   const versionCols = versionKey && SHEET_VERSIONS[versionKey]
@@ -1079,14 +1069,14 @@ function updatePickerCount() {
 }
 
 function buildCoderList() {
-  const coderCol = document.getElementById('coderCol').value;
   const coderMulti = document.getElementById('coderMulti');
   coderMulti.innerHTML = '';
 
-  let coders = [];
-  if (coderCol) {
-    coders = [...new Set(rawData.map(r => String(r[coderCol])).filter(Boolean))];
-  }
+  const coders = [...new Set(
+    rawData
+      .map(r => String(r[FIXED_CODER_COL] ?? '').trim())
+      .filter(v => v && !EXCLUDED_CODERS.has(v.toLowerCase()))
+  )];
 
   coders.forEach(coder => {
     const label = document.createElement('label');
@@ -1121,20 +1111,24 @@ document.querySelectorAll('.metric-item').forEach(item => {
 // RUN
 // ═══════════════════════════════════════════
 document.getElementById('runBtn').addEventListener('click', () => {
-  const paperCol = document.getElementById('paperCol').value;
-  const coderCol = document.getElementById('coderCol').value;
+  const paperCol = FIXED_PAPER_COL;
+  const coderCol = FIXED_CODER_COL;
   const cols = [...selectedCols];
   const metrics = getSelectedMetrics();
 
   const errors = [];
-  if (!paperCol) errors.push('Please select a Paper/Item ID column.');
   if (cols.length === 0) errors.push('Please select at least one coding column.');
   if (metrics.length === 0) errors.push('Please select at least one metric.');
   if (errors.length) { showResults(null, errors, []); return; }
 
-  let wideData = coderCol
-    ? parseLong(rawData, paperCol, coderCol, cols)
-    : parseWide(rawData, paperCol, cols);
+  let wideData = parseLong(rawData, paperCol, coderCol, cols);
+
+  // Remove excluded coder values (e.g. "String" artifact)
+  Object.keys(wideData).forEach(pid => {
+    Object.keys(wideData[pid]).forEach(cid => {
+      if (EXCLUDED_CODERS.has(cid.toLowerCase())) delete wideData[pid][cid];
+    });
+  });
 
   const filterOn = document.getElementById('filterCoders').checked;
   if (filterOn) {
@@ -1148,7 +1142,7 @@ document.getElementById('runBtn').addEventListener('click', () => {
   const papers = Object.keys(wideData).filter(pid => {
     const t = pid.trim();
     if (!t) return false;
-    if (/^\d+$/.test(t)) return false;
+    if (/^\d+$/.test(t)) return false; // bare integer artifact rows
     if (t.toLowerCase() === ARTIFACT_ROW) return false;
     return true;
   });
@@ -1231,34 +1225,41 @@ document.getElementById('runBtn').addEventListener('click', () => {
   });
 
   // ── Build true Paper-level grouping using Paper ID column ──
-  // paperGroupResults[paperNum] -> { m -> avg IRR across all RQs for that paper }
-  // paperGroupTitle[paperNum] -> truncated paper title
-  // paperGroupTitleFull[paperNum] -> full paper title
   const PAPER_ID_COL = 'Paper ID';
   const PAPER_TITLE_COL = 'Paper Title';
-  const paperGroupResults = {}; // paperNum -> { m -> combined IRR }
-  const paperGroupTitle = {};   // paperNum -> truncated title
-  const paperGroupTitleFull = {}; // paperNum -> full title
-  const paperGroupRQs = {};     // paperNum -> [rqId, ...]
+  const paperGroupResults = {};
+  const paperGroupTitle = {};
+  const paperGroupTitleFull = {};
+  const paperGroupRQs = {};
 
-  if (allColumns.includes(PAPER_ID_COL)) {
-    // Map: paperNum -> set of RQ pids
+  if (paperCol === PAPER_ID_COL) {
+    // paperCol IS Paper ID — each pid in papers is already a paper number
+    // Use paperResults directly; grab title from rawData
+    papers.forEach(pid => {
+      paperGroupResults[pid] = paperResults[pid];
+      paperGroupRQs[pid] = [pid];
+      const matchRow = rawData.find(row => String(row[paperCol]) === pid);
+      const title = matchRow && matchRow[PAPER_TITLE_COL]
+        ? String(matchRow[PAPER_TITLE_COL]).trim() : '';
+      paperGroupTitleFull[pid] = title;
+      paperGroupTitle[pid] = title.length > 50 ? title.slice(0, 48) + '…' : title;
+    });
+  } else if (allColumns.includes(PAPER_ID_COL)) {
+    // paperCol is Research Question ID — group RQ pids by their Paper ID
     const paperNumToRQs = {};
     rawData.forEach(row => {
       const rqPid = String(row[paperCol]);
       if (!papers.includes(rqPid)) return;
       const paperNum = String(row[PAPER_ID_COL]).trim();
-      if (!paperNum || paperNum === '' || /^\d+$/.test(paperNum) && parseInt(paperNum) < 1) return;
+      if (!paperNum) return;
       if (!paperNumToRQs[paperNum]) paperNumToRQs[paperNum] = new Set();
       paperNumToRQs[paperNum].add(rqPid);
-      // Grab title from first matching row
       if (!paperGroupTitleFull[paperNum]) {
         const title = row[PAPER_TITLE_COL] ? String(row[PAPER_TITLE_COL]).trim() : '';
         paperGroupTitleFull[paperNum] = title;
         paperGroupTitle[paperNum] = title.length > 50 ? title.slice(0, 48) + '…' : title;
       }
     });
-    // Compute combined IRR per paper
     Object.entries(paperNumToRQs).forEach(([paperNum, rqSet]) => {
       const rqList = [...rqSet];
       paperGroupRQs[paperNum] = rqList;
@@ -1275,7 +1276,7 @@ document.getElementById('runBtn').addEventListener('click', () => {
     paperIndexMap, paperLabelMap, _rqTextFull: rqTextFull,
     paperGroupResults, paperGroupTitle, paperGroupTitleFull, paperGroupRQs,
     cols, papers, coders, metrics, metricErrors, metricWarnings,
-    _wide: wideData, _paperCol: paperCol };
+    _wide: wideData };
   showResults(lastResults, [], []);
 });
 
@@ -1621,7 +1622,7 @@ function showResults(res, errors, warnings) {
     </div>
     <div class="rq-table-wrap"><table>
     <thead><tr>
-      <th>${res._paperCol || 'Paper ID'}</th>
+      <th>${FIXED_PAPER_COL}</th>
       ${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}
     </tr></thead><tbody>`;
 
@@ -1909,6 +1910,30 @@ function dlBlob(blob, name) {
   const a = document.createElement('a');
   a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
 }
+
+// ── Tooltip positioning ──
+document.addEventListener('mouseover', e => {
+  const tip = e.target.closest('.info-tooltip');
+  if (!tip) return;
+  const body = tip.querySelector('.tooltip-body');
+  if (!body) return;
+  const rect = tip.getBoundingClientRect();
+  const left = Math.max(10, Math.min(rect.left + rect.width/2, window.innerWidth - 160));
+  body.style.left = left + 'px';
+  body.style.top = (rect.bottom + 8) + 'px';
+});
 </script>
+
+<footer class="app-footer">
+  <div class="footer-credit">
+    <strong>Created by Melanie Kurimchak</strong> in collaboration with Claude Sonnet 4.6 (Anthropic).<br>
+    Melanie conceived the tool, defined all requirements, tested functionality, and directed development through iterative feedback.
+  </div>
+  <div class="footer-divider"></div>
+  <div class="footer-experimental">
+    ⚗ Experimental · This tool is provided for exploratory use. Results should be verified against established IRR software for publication or formal reporting purposes.
+  </div>
+</footer>
+
 </body>
 </html>
