@@ -1510,10 +1510,14 @@ function showResults(res, errors, warnings) {
   if (!active.length) return;
 
   // ── 1. OVERALL SUMMARY ──
-  // Overall average = avg of paper-level IRR across all papers
+  // Overall average = avg of per-paper IRR (matches By Paper ID cards and export)
+  const paperNums = Object.keys(paperGroupResults).sort((a,b) => {
+    const na=parseFloat(a), nb=parseFloat(b);
+    return isNaN(na)||isNaN(nb) ? a.localeCompare(b) : na-nb;
+  });
   const overallAvg = {};
   active.forEach(m => {
-    const vals = papers.map(p => paperResults[p][m]).filter(v => v !== null);
+    const vals = paperNums.map(p => paperGroupResults[p][m]).filter(v => v !== null);
     overallAvg[m] = vals.length ? avg(vals) : null;
   });
 
@@ -1534,7 +1538,7 @@ function showResults(res, errors, warnings) {
   // Header
   let sh = `<div class="metric-block-header">
     <span class="metric-block-title">Overall Summary</span>
-    <span class="metric-block-sub">Average IRR · ${papers.length} paper${papers.length!==1?'s':''}</span>
+    <span class="metric-block-sub">Average IRR · ${paperNums.length} paper${paperNums.length!==1?'s':''}</span>
   </div>`;
 
   // Side-by-side body
@@ -1558,10 +1562,6 @@ function showResults(res, errors, warnings) {
   sh += '<div class="summary-right">';
   sh += `<div class="summary-right-label">By Paper ID</div>`;
   sh += '<div class="rq-cards-scroll">';
-  const paperNums = Object.keys(paperGroupResults).sort((a,b) => {
-    const na = parseFloat(a), nb = parseFloat(b);
-    return isNaN(na)||isNaN(nb) ? a.localeCompare(b) : na - nb;
-  });
   if (paperNums.length > 0) {
     paperNums.forEach(paperNum => {
       const title = paperGroupTitle[paperNum] || '';
@@ -1749,14 +1749,21 @@ function banner(type,icon,msg) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   if (!lastResults) return;
-  const {paperResults, paperGroupResults, paperGroupTitleFull, paperGroupRQs,
+  const {paperGroupResults, paperGroupTitleFull,
          papers, metrics, metricErrors} = lastResults;
   const active = metrics.filter(m=>!metricErrors[m].length);
+
+  const paperNums = Object.keys(paperGroupResults).sort((a,b)=>{
+    const na=parseFloat(a),nb=parseFloat(b); return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;
+  });
+
+  // Overall = average of paperGroupResults (matches display)
   const overallAvg = {};
   active.forEach(m => {
-    const vals = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
+    const vals = paperNums.map(p=>paperGroupResults[p][m]).filter(v=>v!==null);
     overallAvg[m] = vals.length ? avg(vals) : null;
   });
+
   const metricHeaders = active.map(m => METRIC_LABELS[m]);
   const lines = [];
 
@@ -1770,9 +1777,6 @@ function exportCSV() {
 
   // By Paper ID
   lines.push(['BY PAPER ID', 'Paper Title', ...metricHeaders].join(','));
-  const paperNums = Object.keys(paperGroupResults).sort((a,b)=>{
-    const na=parseFloat(a),nb=parseFloat(b); return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;
-  });
   paperNums.forEach(paperNum => {
     const title = paperGroupTitleFull[paperNum] || '';
     const row = [`Paper ${paperNum}`, JSON.stringify(title), ...active.map(m => {
@@ -1781,29 +1785,30 @@ function exportCSV() {
     })];
     lines.push(row.join(','));
   });
-  const avgVals = active.map(m => {
-    const vals = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
-    const v = vals.length ? avg(vals) : null;
+  // AVERAGE row from paperGroupResults
+  lines.push(['AVERAGE', '', ...active.map(m => {
+    const v = overallAvg[m];
     return v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
-  });
-  lines.push(['AVERAGE', '', ...avgVals].join(','));
+  })].join(','));
 
   dlBlob(new Blob([lines.join('\n')],{type:'text/csv'}), 'irr_results.csv');
 }
 
 function exportXLSX() {
   if (!lastResults) return;
-  const {paperResults, paperGroupResults, paperGroupTitleFull, paperGroupRQs,
-         papers, metrics, metricErrors} = lastResults;
+  const {paperGroupResults, paperGroupTitleFull,
+         metrics, metricErrors} = lastResults;
   const active = metrics.filter(m=>!metricErrors[m].length);
-  const overallAvg = {};
-  active.forEach(m => {
-    const vals = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
-    overallAvg[m] = vals.length ? avg(vals) : null;
-  });
 
   const paperNums = Object.keys(paperGroupResults).sort((a,b)=>{
     const na=parseFloat(a),nb=parseFloat(b); return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;
+  });
+
+  // Overall = average of paperGroupResults (matches display)
+  const overallAvg = {};
+  active.forEach(m => {
+    const vals = paperNums.map(p=>paperGroupResults[p][m]).filter(v=>v!==null);
+    overallAvg[m] = vals.length ? avg(vals) : null;
   });
 
   const wb = XLSX.utils.book_new();
@@ -1831,8 +1836,7 @@ function exportXLSX() {
     ]);
   });
   const avgRow = ['AVERAGE', '', ...active.map(m => {
-    const vals = papers.map(p=>paperResults[p][m]).filter(v=>v!==null);
-    const v = vals.length ? avg(vals) : null;
+    const v = overallAvg[m];
     return v !== null ? (m==='pairwise' ? parseFloat((v*100).toFixed(1)) : parseFloat(v.toFixed(4))) : 'N/A';
   })];
   wsData.push(avgRow);
