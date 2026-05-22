@@ -10,6 +10,10 @@ The IRR Calculator is a self-contained, browser-based desktop application for co
 
 It was built specifically for the GenAI Evidence Hub project and supports the coding sheet formats used across the three evidence domains: Automated Scoring, Item Generation, and Formative Feedback (upcoming).
 
+**Created by Melanie Kurimchak** in collaboration with Claude Sonnet 4.6 (Anthropic). Melanie conceived the tool, defined all requirements, tested functionality, and directed development through iterative feedback.
+
+> ⚗ **Experimental** · This tool is provided for exploratory use. Results should be verified against established IRR software for publication or formal reporting purposes.
+
 ---
 
 ## Getting Started
@@ -17,7 +21,7 @@ It was built specifically for the GenAI Evidence Hub project and supports the co
 1. Download `irr_calculator.html`
 2. Open it in Chrome, Firefox, Edge, or Safari
 3. Upload your combined coding sheet (see Supported Formats below)
-4. Follow the five-step sidebar workflow
+4. Follow the sidebar workflow — upload, select sheet version, configure IRR columns, filter coders, select metrics
 5. Click **Calculate IRR** to view results
 
 No Python, Node.js, or package installation required.
@@ -48,15 +52,19 @@ The application expects a **long-format** file where each row represents one rev
 | 249 | 249.1 | Bob | Education | Pearson | ... |
 | 249 | 249.2 | Alice | NLP | Accuracy | ... |
 
-### Required Columns
-- **`Research Question ID`** — unique identifier per research question (e.g. `249.1`, `249.2`). Auto-selected as the primary item ID column.
-- **`Paper ID`** — numeric paper identifier used to group research questions into papers for the summary display (e.g. `249`).
-- **`Paper Title`** — title of the paper, used as a display label in the By Paper ID summary cards.
-- **`Reviewer`** — coder identifier. Auto-selected as the Coder ID column.
-- **`Research Question`** — full text of the research question. Used as a display label in the RQ-level table and in exports.
+### Fixed Columns
+The following columns are always used automatically and do not require configuration:
+
+| Column | Purpose |
+|---|---|
+| **`Research Question ID`** | Primary item identifier (e.g. `249.1`, `249.2`). Always used as the grouping unit for IRR calculations. |
+| **`Reviewer`** | Coder identifier. Always used to distinguish coders. |
+| **`Paper ID`** | Numeric paper identifier used to group research questions into papers for the summary display. |
+| **`Paper Title`** | Title of the paper, used as a display label in the By Paper ID summary cards and exports. |
+| **`Research Question`** | Full text of the research question, used as a display label in the RQ-level table and exports. |
 
 ### Known Artifact Row
-The second row of each coding sheet contains the label `"Numerical (index identifier)"` in the Research Question ID column. This row is automatically detected and excluded from all calculations and display.
+The second row of each coding sheet contains the label `"Numerical (index identifier)"` in the Research Question ID column. This row is automatically detected and excluded from all calculations and display. The reviewer value `"String"` is also automatically excluded.
 
 ---
 
@@ -97,7 +105,7 @@ Computed using the **coincidence-matrix method** (Hayes & Krippendorff, 2007). T
 ### How IRR is Aggregated
 - **Per-variable IRR:** Alpha is computed across all coders for each coding column individually.
 - **Per-RQ IRR:** The average of all per-variable Alpha values for that Research Question ID.
-- **Per-paper IRR:** The average of all per-RQ IRR values for research questions belonging to that Paper ID (e.g. Paper 249 with RQs 249.1 and 249.2 shows the average of both RQ scores).
+- **Per-paper IRR:** The average of all per-RQ IRR values for research questions belonging to that Paper ID (e.g. Paper 249 with RQs 249.1 at 0.906 and 249.2 at 0.548 shows 0.727).
 - **Overall IRR:** The average of all per-RQ values across all papers.
 - **Empty cells** are treated as missing and excluded from all calculations.
 
@@ -113,9 +121,9 @@ Results are organized into three sections:
 ### 1. Overall Summary
 A side-by-side panel showing:
 - **Left:** Overall average IRR across all research questions, with a strength interpretation (Strong >= 0.80, Moderate >= 0.60, Low < 0.60)
-- **Right — By Paper ID:** One card per paper, horizontally scrollable, showing:
-  - `Paper [ID]` as the heading (e.g. `Paper 249`)
-  - Truncated paper title beneath (full title on hover)
+- **Right — By Paper ID:** One card per paper, horizontally scrollable, sorted numerically by Paper ID, each showing:
+  - `Paper [ID]` as the bold heading (e.g. `Paper 249`)
+  - Truncated paper title beneath
   - Color-coded combined IRR score averaged across all RQs for that paper
 
 ### 2. Research Question-Level IRR Table
@@ -123,6 +131,8 @@ One row per Research Question ID with IRR score(s) and the truncated research qu
 
 ### 3. Pairwise Agreement Detail (collapsible)
 Appears when Pairwise % Agreement is selected. Shows agreement per coder pair per column, collapsed by default.
+
+A methodology info tooltip (hover the ℹ icon next to "IRR Results") explains the calculation approach, validation notes, and aggregation logic.
 
 ---
 
@@ -143,24 +153,21 @@ The Excel export includes color-coded IRR values (green >= 0.80, amber >= 0.60, 
 
 ## Column Configuration
 
-### Column Picker
-After uploading, use the column picker to select which coding columns to include in the IRR calculation. Columns from the detected sheet version are pre-selected. Use **Select all** / **Clear** buttons for bulk actions.
+### Column Picker (Step 03)
+After uploading, use the column picker to select which coding columns to include in the IRR calculation. Columns from the detected sheet version are pre-selected. Use **Select all** / **Clear** buttons for bulk actions. Click the data type badge (NOM / ORD / INT) next to any column to change its measurement level, which affects how Krippendorff's Alpha measures disagreement.
 
-### Data Types
-Click the type badge (NOM / ORD / INT) next to any selected column to change its data type. This affects how Krippendorff's Alpha measures disagreement between values.
-
-### Coder Filter
-Check **Filter to specific coders only** to restrict calculations to a subset of reviewers. All reviewers found in the uploaded file are listed and checked by default.
+### Coder Filter (Step 04)
+Check **Filter to specific coders only** to restrict calculations to a subset of reviewers. All reviewers found in the file are listed and checked by default. The artifact reviewer `"String"` is automatically excluded.
 
 ---
 
 ## Technical Notes
 
-- **No installation required.** The application is a single HTML file with one external dependency (SheetJS, loaded from a CDN for Excel support).
+- **No installation required.** Single HTML file with one external dependency (SheetJS via CDN for Excel support).
 - **All computation is client-side.** No data is sent to any server.
-- **Artifact filtering:** Rows where the Research Question ID is blank, a bare integer, or exactly `"Numerical (index identifier)"` are automatically excluded.
-- **Missing data:** Empty cells are excluded from pairwise calculations. Metric columns with no data from any reviewer are excluded from pre-selection.
-- **Methodology tooltip:** Hover the info icon (i) next to "IRR Results" to see the calculation methodology, validation notes, and aggregation logic.
+- **Fixed columns:** `Research Question ID` and `Reviewer` are always used as the paper and coder identifiers respectively. No dropdown selection is needed.
+- **Artifact filtering:** Rows where the Research Question ID is blank, a bare integer, or `"Numerical (index identifier)"` are automatically excluded. The reviewer value `"String"` is excluded from all calculations and the coder filter list.
+- **Missing data:** Empty cells are excluded from calculations. Metric columns with no data from any reviewer are excluded from pre-selection.
 
 ---
 
