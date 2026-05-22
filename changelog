@@ -1,0 +1,93 @@
+# IRR Calculator — Changelog
+
+Changes made from the initial release to the current version, followed by a record of the v2 investigation.
+
+---
+
+## Bug Fix — Export/Display Value Consistency
+
+### Problem
+The IRR values shown on screen did not match those in the exported CSV and Excel files. For example, the display showed Paper 235 at 0.194 while the export showed 0.1905, and the overall IRR showed 0.699 on screen vs. 0.6943 in the export.
+
+### Root Cause
+`overallAvg` was being computed from `paperResults` (keyed by Research Question ID — one value per RQ) in three separate places: the display, the CSV export, and the Excel export. The per-paper summary cards and the By Paper ID section correctly used `paperGroupResults` (one combined IRR per paper, averaged across all RQs for that paper), but the overall and AVERAGE calculations did not. With papers containing different numbers of RQs, averaging over RQs vs. averaging over papers produces different results.
+
+### Fix
+- The display's overall IRR, the CSV overall + AVERAGE row, and the Excel overall + AVERAGE row all now use `paperGroupResults` as their source — identical logic across all three outputs
+- The summary header paper count now correctly reflects the number of papers (not RQs)
+- Removed a duplicate `paperNums` sort computation that was redundantly recomputing the same sorted list in the summary cards section
+
+---
+
+## Current Version (canonical)
+
+### Simplified Column Configuration
+- Removed the **Paper / Item ID column** and **Coder ID column** dropdowns from the sidebar entirely
+- `Research Question ID` is now always used as the paper/item identifier — hard-coded, no selection needed
+- `Reviewer` is now always used as the coder identifier — hard-coded, no selection needed
+- The Configure Columns step (03) now shows only the IRR column picker
+
+### Artifact & Exclusion Filtering
+- The reviewer value **`"String"`** is now excluded from all calculations and from the coder filter list — it is a known artifact reviewer in the coding sheet header row
+- Bare-integer artifact filtering (for Research Question ID values like `1`, `2`) restored to unconditional — previously conditioned on which column was selected as paperCol, now always applies since paperCol is fixed
+- `"Numerical (index identifier)"` row exclusion unchanged
+
+### Paper Grouping Logic
+- The app reads the `Paper ID` column to group research questions into papers for the summary display
+- Per-paper IRR = average of per-RQ IRR values for all RQs belonging to that paper (e.g. Paper 249 with RQs 249.1 at 0.906 and 249.2 at 0.548 shows combined 0.727)
+- Paper titles read from `Paper Title` column for display labels
+- Cards in the By Paper ID summary sorted numerically by Paper ID
+
+### Overall Summary Redesign
+- **Left panel:** Overall average IRR per active metric (unchanged)
+- **Right panel — By Paper ID:** One card per paper (grouped by `Paper ID` column) showing `Paper [ID]` as bold heading, truncated paper title, and color-coded combined IRR averaged across all RQs — no RQ-level labels in the summary
+- Previously showed per-RQ-ID cards; now correctly shows per-paper cards with combined IRR
+
+### Research Question-Level IRR Table
+- Renamed from "Paper-Level IRR" to "Research Question-Level IRR" to accurately reflect that each row corresponds to a Research Question ID, not a paper
+
+### Export
+- Both CSV and Excel exports mirror the on-screen layout: **Overall Summary** section followed by **By Paper ID** section
+- Each paper row: `Paper [ID]` label | Full Paper Title (untruncated) | IRR score(s)
+- AVERAGE row at the bottom of the By Paper ID section
+- Excel: color-coded IRR values, section header styling, alternating row shading
+
+### Tooltip Fix
+- The methodology info tooltip (ℹ icon next to "IRR Results") previously appeared behind the fixed app header bar
+- Now uses `position: fixed` with JavaScript-based viewport-aware positioning — always appears below the icon, never clipped by the header
+
+### Footer Added
+- Persistent footer at the bottom of the app with two elements:
+  - **Creator credit:** "Created by Melanie Kurimchak in collaboration with Claude Sonnet 4.6 (Anthropic). Melanie conceived the tool, defined all requirements, tested functionality, and directed development through iterative feedback."
+  - **Experimental disclosure:** "⚗ Experimental · This tool is provided for exploratory use. Results should be verified against established IRR software for publication or formal reporting purposes."
+
+---
+
+## v2 Investigation (Concluded — v2 Abandoned)
+
+### Background
+A v2 was attempted to address the observation that metric order across coders should not affect IRR — i.e., if Coder A puts "QWK" in Metric slot 1 and Coder B puts "QWK" in Metric slot 3, those should be treated as agreement on the same metric type rather than compared by slot position.
+
+### What Was Attempted
+Three iterations of v2 were built:
+1. **Attempt 1 (ABSENT sentinel):** Aligned metrics by type, counted unmatched types as disagreement using a sentinel value. Produced significantly lower IRR than expected due to virtual item expansion diluting the score.
+2. **Attempt 2 (skip unmatched):** Aligned by type, skipped unmatched types entirely. Produced identical results to v1 because coders in this dataset use the same metric slots most of the time.
+3. **Attempt 3 (per-RQ intersection):** Fixed scoping so intersection was computed strictly per-RQ. Still produced identical results to v1 for the same reason.
+
+### Validation Against Human Calculation
+A manually calculated IRR of 0.72 overall (0.643 / 0.691 / 0.85 per paper) was provided as a target. Exhaustive analysis of the actual coding sheet data (9 coders, 4 RQs, 189+ columns) found:
+
+- No calculation method reproduces the 0.72 / 0.643 / 0.691 / 0.85 values
+- The Krippendorff's Alpha implementation was validated against the `krippendorff` Python package, which independently produces equivalent results
+- Most likely explanation: the human calculation was performed on an earlier dataset version with fewer coders. With all 9 coders, genuine variation drives the overall figure to ~0.647
+- The v1 result of **0.647 overall** is mathematically correct for the current dataset
+
+### Conclusion
+V2 was abandoned. The slot-literal calculation is the canonical correct result. A methodology tooltip was added to document the calculation approach for future users.
+
+---
+
+## Validation Reference
+Krippendorff's Alpha tested against the `krippendorff` Python package:
+- Test: RQ 1.1, top-level IG columns, all 9 coders
+- App result: 0.479 | Package result: 0.469 (within rounding/floating-point tolerance)
