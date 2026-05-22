@@ -40,18 +40,20 @@ The delimiter is auto-detected for text-based files. Excel files use the first s
 ## Coding Sheet Requirements
 
 ### Expected Structure
-The application expects a **long-format** file where each row represents one reviewer's coding of one research question/paper:
+The application expects a **long-format** file where each row represents one reviewer's coding of one research question:
 
-| Research Question ID | Reviewer | Domain | AI Innovation | Metric1-type | … |
+| Paper ID | Research Question ID | Reviewer | Domain | Metric1-type | ... |
 |---|---|---|---|---|---|
-| 1.1 | Alice | Education | Yes | QWK | … |
-| 1.1 | Bob | Education | Yes | Pearson | … |
-| 2.1 | Alice | NLP | No | Accuracy | … |
+| 249 | 249.1 | Alice | Education | QWK | ... |
+| 249 | 249.1 | Bob | Education | Pearson | ... |
+| 249 | 249.2 | Alice | NLP | Accuracy | ... |
 
 ### Required Columns
-- **`Research Question ID`** — unique identifier per research question (e.g. `1.1`, `2.3`). Auto-selected as the Paper/Item ID column.
+- **`Research Question ID`** — unique identifier per research question (e.g. `249.1`, `249.2`). Auto-selected as the primary item ID column.
+- **`Paper ID`** — numeric paper identifier used to group research questions into papers for the summary display (e.g. `249`).
+- **`Paper Title`** — title of the paper, used as a display label in the By Paper ID summary cards.
 - **`Reviewer`** — coder identifier. Auto-selected as the Coder ID column.
-- **`Research Question`** — full text of the research question. Used for display labels next to RQ IDs in the results table.
+- **`Research Question`** — full text of the research question. Used as a display label in the RQ-level table and in exports.
 
 ### Known Artifact Row
 The second row of each coding sheet contains the label `"Numerical (index identifier)"` in the Research Question ID column. This row is automatically detected and excluded from all calculations and display.
@@ -87,29 +89,55 @@ Each column can be assigned a data type — **nominal**, **ordinal**, or **inter
 
 ---
 
+## Calculation Methodology
+
+### Krippendorff's Alpha
+Computed using the **coincidence-matrix method** (Hayes & Krippendorff, 2007). This implementation has been validated against the `krippendorff` Python package and produces equivalent results. The delta function uses nominal distance (0 if equal, 1 if not) by default, or ordinal/interval distance when the data type is set accordingly.
+
+### How IRR is Aggregated
+- **Per-variable IRR:** Alpha is computed across all coders for each coding column individually.
+- **Per-RQ IRR:** The average of all per-variable Alpha values for that Research Question ID.
+- **Per-paper IRR:** The average of all per-RQ IRR values for research questions belonging to that Paper ID (e.g. Paper 249 with RQs 249.1 and 249.2 shows the average of both RQ scores).
+- **Overall IRR:** The average of all per-RQ values across all papers.
+- **Empty cells** are treated as missing and excluded from all calculations.
+
+### A Note on Expected Values
+With 9+ coders and genuine variation across coding decisions, Krippendorff's Alpha values in the 0.60–0.70 range are expected and appropriate. Values calculated on earlier data snapshots (with fewer coders) will naturally differ from the current full-coder result.
+
+---
+
 ## Results Display
 
 Results are organized into three sections:
 
 ### 1. Overall Summary
 A side-by-side panel showing:
-- **Left:** Overall average IRR score(s) across all research questions and coders, with a strength interpretation (Strong ≥ 0.80, Moderate ≥ 0.60, Low < 0.60)
-- **Right:** Per-RQ-ID breakdown — one card per unique Research Question ID, horizontally scrollable, sorted numerically (1.1, 1.2, 2.1…)
+- **Left:** Overall average IRR across all research questions, with a strength interpretation (Strong >= 0.80, Moderate >= 0.60, Low < 0.60)
+- **Right — By Paper ID:** One card per paper, horizontally scrollable, showing:
+  - `Paper [ID]` as the heading (e.g. `Paper 249`)
+  - Truncated paper title beneath (full title on hover)
+  - Color-coded combined IRR score averaged across all RQs for that paper
 
-### 2. Paper-Level IRR Table
+### 2. Research Question-Level IRR Table
 One row per Research Question ID with IRR score(s) and the truncated research question text as a label. Click any row to expand an inline variable-level breakdown showing IRR for each individual coding column for that research question.
 
-### 3. Pairwise Agreement Detail *(collapsible)*
+### 3. Pairwise Agreement Detail (collapsible)
 Appears when Pairwise % Agreement is selected. Shows agreement per coder pair per column, collapsed by default.
 
 ---
 
 ## Exporting Results
 
-Click **Export CSV** or **Export Excel** in the results header. The export includes:
-- Research Question–level IRR rows (one per RQ ID)
-- Paper-level IRR rows with both the RQ ID label and numeric index
-- An AVERAGE row for each section
+Click **Export CSV** or **Export Excel** in the results header. Both exports mirror the on-screen layout with two sections:
+
+**Overall Summary**
+- One row showing the overall average IRR per active metric
+
+**By Paper ID**
+- One row per paper: `Paper [ID]` | Full Paper Title | IRR score(s)
+- An AVERAGE row at the bottom
+
+The Excel export includes color-coded IRR values (green >= 0.80, amber >= 0.60, red < 0.60), section header styling, and alternating row shading to match the on-screen appearance.
 
 ---
 
@@ -128,14 +156,16 @@ Check **Filter to specific coders only** to restrict calculations to a subset of
 
 ## Technical Notes
 
-- **No installation required.** The application is a single HTML file with one external dependency (SheetJS, loaded from a CDN).
+- **No installation required.** The application is a single HTML file with one external dependency (SheetJS, loaded from a CDN for Excel support).
 - **All computation is client-side.** No data is sent to any server.
-- **IRR math:** Krippendorff's Alpha is computed using the coincidence matrix method. Pairwise agreement is the mean of all pairwise exact-match rates. Cohen's and Fleiss' Kappa use standard observed/expected agreement formulas.
-- **Missing data handling:** Empty cells are treated as missing and excluded from pairwise calculations. Metric columns with no data from any reviewer are excluded from pre-selection.
 - **Artifact filtering:** Rows where the Research Question ID is blank, a bare integer, or exactly `"Numerical (index identifier)"` are automatically excluded.
+- **Missing data:** Empty cells are excluded from pairwise calculations. Metric columns with no data from any reviewer are excluded from pre-selection.
+- **Methodology tooltip:** Hover the info icon (i) next to "IRR Results" to see the calculation methodology, validation notes, and aggregation logic.
 
 ---
 
 ## Project Context
 
 This tool was developed for the **GenAI Evidence Hub**, a systematic literature review project at Learning Data Insights tracking generative AI use in educational assessment. The three evidence domains are Automated Scoring, Item Generation, and Formative Feedback.
+
+For questions, contact the LDI project team.
