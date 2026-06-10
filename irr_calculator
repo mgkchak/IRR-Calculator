@@ -492,7 +492,35 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
-  /* ── Expandable rows ── */
+  /* ── Two-level accordion: pair → paper → RQ ── */
+  .pair-row { cursor: pointer; }
+  .pair-row:hover td { background: rgba(107,138,253,.06) !important; }
+  .pair-row td:first-child::before {
+    content: '▶'; display: inline-block; font-size: 9px;
+    margin-right: 8px; color: var(--text-faint); transition: transform .2s;
+  }
+  .pair-row.expanded td:first-child::before { transform: rotate(90deg); color: var(--accent); }
+
+  .pair-expand-row { display: none; }
+  .pair-expand-row.visible { display: table-row; }
+  .pair-expand-cell { padding: 0 !important; border-bottom: 1px solid var(--border) !important; }
+
+  .paper-sub-row { cursor: pointer; background: var(--surface2); }
+  .paper-sub-row:hover td { background: rgba(107,138,253,.04) !important; }
+  .paper-sub-row td:first-child::before {
+    content: '▶'; display: inline-block; font-size: 8px;
+    margin-right: 8px; color: var(--text-faint); transition: transform .2s;
+  }
+  .paper-sub-row.expanded td:first-child::before { transform: rotate(90deg); color: var(--accent2); }
+
+  .rq-sub-row { display: none; background: var(--bg); }
+  .rq-sub-row.visible { display: table-row; }
+  .rq-sub-cell { padding: 0 !important; }
+  .rq-sub-inner { background: var(--bg); border-top: 1px solid var(--border); }
+  .rq-sub-inner td { padding: 7px 14px 7px 48px !important; font-size: 10px; border-bottom: 1px solid rgba(46,53,79,.4); }
+  .rq-sub-inner tr:last-child td { border-bottom: none; }
+  .rq-sub-inner tbody tr:hover td { background: rgba(255,255,255,.01); }
+
   .paper-row { cursor: pointer; }
   .paper-row:hover td { background: rgba(107,138,253,.06) !important; }
   .paper-row td:first-child::before {
@@ -1159,132 +1187,93 @@ document.getElementById('runBtn').addEventListener('click', () => {
     }
   });
 
-  // ── Per-RQ (paper) IRR — pooled over all fields for that RQ ──
-  const paperResults = {};
-  papers.forEach(rqId => {
-    paperResults[rqId] = {};
-    metrics.forEach(m => {
-      if (metricErrors[m].length) { paperResults[rqId][m] = null; return; }
-      paperResults[rqId][m] = calcMetricFromRecords(
-        m, allRecords, r => r.rq === rqId, coders
-      );
-    });
-  });
-
-  // ── Per-field IRR — pooled over all RQs for that field ──
-  const rqResults = {};
-  cols.forEach(col => {
-    rqResults[col] = {};
-    metrics.forEach(m => {
-      if (metricErrors[m].length) { rqResults[col][m] = null; return; }
-      rqResults[col][m] = calcMetricFromRecords(
-        m, allRecords, r => r.field === col, coders
-      );
-    });
-  });
-
-  const paperIndexMap = {};
-  const paperLabelMap = {}; // rqId -> truncated Research Question text (for display)
-  const rqTextFull = {}; // rqId -> full Research Question text (for export)
-  const RQ_TEXT_COL = 'Research Question';
-  papers.forEach((pid, i) => {
-    paperIndexMap[pid] = i + 1;
-    const matchRow = rawData.find(row => String(row[paperCol]) === pid);
-    const rqText = matchRow && matchRow[RQ_TEXT_COL]
-      ? String(matchRow[RQ_TEXT_COL]).trim() : '';
-    rqTextFull[pid] = rqText;
-    paperLabelMap[pid] = rqText.length > 52 ? rqText.slice(0, 50) + '…' : rqText;
-  });
-
-  // Build RQ ID grouped results: rqId -> { m -> avg IRR across papers in that RQ }
-  const RQ_COL = 'Research Question ID';
-  const rqIdResults = {};
-  const rqIdPapers = {}; // rqId -> Set of pids
-
-  if (paperCol === RQ_COL) {
-    papers.forEach(pid => {
-      if (!rqIdPapers[pid]) rqIdPapers[pid] = new Set();
-      rqIdPapers[pid].add(pid);
-    });
-  } else if (allColumns.includes(RQ_COL)) {
-    rawData.forEach(row => {
-      const pid = String(row[paperCol]);
-      const rqId = row[RQ_COL] !== undefined && String(row[RQ_COL]).trim() !== ''
-        ? String(row[RQ_COL]).trim() : null;
-      if (!rqId || !wideData[pid] || !papers.includes(pid)) return;
-      if (!rqIdPapers[rqId]) rqIdPapers[rqId] = new Set();
-      rqIdPapers[rqId].add(pid);
-    });
-  }
-
-  Object.entries(rqIdPapers).forEach(([rqId, pidSet]) => {
-    const rqPapers = [...pidSet];
-    rqIdResults[rqId] = {};
-    metrics.forEach(m => {
-      if (metricErrors[m].length) { rqIdResults[rqId][m] = null; return; }
-      const vals = rqPapers.map(pid => paperResults[pid][m]).filter(v => v !== null);
-      rqIdResults[rqId][m] = vals.length ? avg(vals) : null;
-    });
-  });
-
-  // ── Build true Paper-level grouping using Paper ID column ──
+  // ── Derive paper→RQ mapping and labels ──
   const PAPER_ID_COL = 'Paper ID';
   const PAPER_TITLE_COL = 'Paper Title';
-  const paperGroupResults = {};
+  const RQ_TEXT_COL = 'Research Question';
+  const paperNumToRQs = {};
   const paperGroupTitle = {};
   const paperGroupTitleFull = {};
-  const paperGroupRQs = {};
+  const rqLabelMap = {};
+  const rqLabelFull = {};
 
-  if (paperCol === PAPER_ID_COL) {
-    papers.forEach(pid => {
-      paperGroupResults[pid] = {};
-      paperGroupRQs[pid] = [pid];
-      metrics.forEach(m => {
-        if (metricErrors[m].length) { paperGroupResults[pid][m] = null; return; }
-        paperGroupResults[pid][m] = calcMetricFromRecords(
-          m, allRecords, r => r.paper === pid, coders
-        );
-      });
-      const matchRow = rawData.find(row => String(row[paperCol]) === pid);
-      const title = matchRow && matchRow[PAPER_TITLE_COL]
-        ? String(matchRow[PAPER_TITLE_COL]).trim() : '';
-      paperGroupTitleFull[pid] = title;
-      paperGroupTitle[pid] = title.length > 50 ? title.slice(0, 48) + '…' : title;
-    });
-  } else if (allColumns.includes(PAPER_ID_COL)) {
-    const paperNumToRQs = {};
-    rawData.forEach(row => {
-      const rqPid = String(row[paperCol]);
-      if (!papers.includes(rqPid)) return;
-      const paperNum = String(row[PAPER_ID_COL]).trim();
-      if (!paperNum) return;
+  rawData.forEach(row => {
+    const rqId = String(row[paperCol] ?? '').trim();
+    if (!papers.includes(rqId)) return;
+    const paperNum = row[PAPER_ID_COL] ? String(row[PAPER_ID_COL]).trim() : null;
+    if (paperNum) {
       if (!paperNumToRQs[paperNum]) paperNumToRQs[paperNum] = new Set();
-      paperNumToRQs[paperNum].add(rqPid);
+      paperNumToRQs[paperNum].add(rqId);
       if (!paperGroupTitleFull[paperNum]) {
-        const title = row[PAPER_TITLE_COL] ? String(row[PAPER_TITLE_COL]).trim() : '';
-        paperGroupTitleFull[paperNum] = title;
-        paperGroupTitle[paperNum] = title.length > 50 ? title.slice(0, 48) + '…' : title;
+        const t = row[PAPER_TITLE_COL] ? String(row[PAPER_TITLE_COL]).trim() : '';
+        paperGroupTitleFull[paperNum] = t;
+        paperGroupTitle[paperNum] = t.length > 50 ? t.slice(0,48)+'…' : t;
       }
+    }
+    if (!rqLabelFull[rqId]) {
+      const rqText = row[RQ_TEXT_COL] ? String(row[RQ_TEXT_COL]).trim() : '';
+      rqLabelFull[rqId] = rqText;
+      rqLabelMap[rqId] = rqText.length > 52 ? rqText.slice(0,50)+'…' : rqText;
+    }
+  });
+
+  const paperNums = Object.keys(paperNumToRQs).sort((a,b) => {
+    const na=parseFloat(a), nb=parseFloat(b);
+    return isNaN(na)||isNaN(nb) ? a.localeCompare(b) : na-nb;
+  });
+
+  // ── Build coder pairs ──
+  const pairs = [];
+  for (let i = 0; i < coders.length; i++)
+    for (let j = i+1; j < coders.length; j++)
+      pairs.push([coders[i], coders[j]]);
+  const pk = (c1, c2) => `${c1} × ${c2}`;
+
+  // ── Overall alpha (all coders) for left summary card ──
+  const overallAlpha = (!metricErrors['alpha'] || !metricErrors['alpha'].length)
+    ? krippendorffAlphaPooled(allRecords) : null;
+
+  // ── Pair-level alpha: pooled across ALL (Paper,RQ,Field) for that pair ──
+  const pairResults = {};
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    const pr = allRecords.filter(r => r.coder===c1 || r.coder===c2);
+    pairResults[key] = krippendorffAlphaPooled(pr);
+  });
+
+  // ── Pair × Paper alpha ──
+  const pairPaperResults = {};
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    pairPaperResults[key] = {};
+    paperNums.forEach(pNum => {
+      const pr = allRecords.filter(r => r.paper===pNum && (r.coder===c1||r.coder===c2));
+      pairPaperResults[key][pNum] = krippendorffAlphaPooled(pr);
     });
-    Object.entries(paperNumToRQs).forEach(([paperNum, rqSet]) => {
-      const rqList = [...rqSet];
-      paperGroupRQs[paperNum] = rqList;
-      paperGroupResults[paperNum] = {};
-      metrics.forEach(m => {
-        if (metricErrors[m].length) { paperGroupResults[paperNum][m] = null; return; }
-        // Pool ALL records for this paper (across all its RQs)
-        paperGroupResults[paperNum][m] = calcMetricFromRecords(
-          m, allRecords, r => r.paper === paperNum, coders
-        );
+  });
+
+  // ── Pair × Paper × RQ alpha ──
+  const pairPaperRQResults = {};
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    pairPaperRQResults[key] = {};
+    paperNums.forEach(pNum => {
+      pairPaperRQResults[key][pNum] = {};
+      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
+      rqList.forEach(rqId => {
+        const pr = allRecords.filter(r => r.paper===pNum && r.rq===rqId && (r.coder===c1||r.coder===c2));
+        pairPaperRQResults[key][pNum][rqId] = krippendorffAlphaPooled(pr);
       });
     });
-  }
+  });
 
-  lastResults = { rqResults, paperResults, rqIdResults, rqIdPapers,
-    paperIndexMap, paperLabelMap, _rqTextFull: rqTextFull,
-    paperGroupResults, paperGroupTitle, paperGroupTitleFull, paperGroupRQs,
+  lastResults = {
+    overallAlpha, pairs, pairResults, pairPaperResults, pairPaperRQResults,
+    paperNums, paperNumToRQs, paperGroupTitle, paperGroupTitleFull,
+    rqLabelMap, rqLabelFull,
     cols, papers, coders, metrics, metricErrors, metricWarnings,
-    allRecords, freetextSelected };
+    allRecords, freetextSelected
+  };
   showResults(lastResults, [], []);
 });
 
@@ -1628,8 +1617,9 @@ function showResults(res, errors, warnings) {
   errors.forEach(e => area.innerHTML += banner('error','✖',e));
   if (!res) return;
 
-  const {rqResults, paperResults, rqIdResults, rqIdPapers,
-         paperIndexMap, paperLabelMap, paperGroupResults, paperGroupTitle, paperGroupRQs,
+  const {overallAlpha, pairs, pairResults, pairPaperResults, pairPaperRQResults,
+         paperNums, paperNumToRQs, paperGroupTitle, paperGroupTitleFull,
+         rqLabelMap, rqLabelFull,
          cols, papers, coders, metrics, metricErrors, metricWarnings,
          allRecords, freetextSelected} = res;
 
@@ -1644,7 +1634,6 @@ function showResults(res, errors, warnings) {
     );
   }
 
-  const active = metrics.filter(m => !metricErrors[m].length);
   const vName = activeVersion ? SHEET_VERSIONS[activeVersion].name : '';
   const ts = new Date().toLocaleString();
 
@@ -1653,8 +1642,8 @@ function showResults(res, errors, warnings) {
   hdr.className = 'results-header';
   hdr.innerHTML = `
     <div>
-      <div class="results-title">IRR Results <span class="info-tooltip">ℹ<span class="tooltip-body"><strong>Methodology note</strong><br>Krippendorff's Alpha uses a <strong>pooled coincidence matrix</strong> across all (Paper, RQ, Field) units — one alpha per scope, not an average of per-column alphas. Numeric values are normalized (85 == 85.0), multiselect cells compared order-independently. Free-text fields may deflate alpha if included. Validated against the reference Python script (compute_irr.py).</span></span></div>
-      <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} papers · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
+      <div class="results-title">IRR Results <span class="info-tooltip">ℹ<span class="tooltip-body"><strong>Methodology note</strong><br>Krippendorff\'s Alpha uses a <strong>pooled coincidence matrix</strong> across all (Paper, RQ, Field) units — one alpha per scope, not an average of per-column alphas. Numeric values are normalized (85 == 85.0), multiselect cells compared order-independently. Free-text fields may deflate alpha if included. Validated against compute_irr.py.</span></span></div>
+      <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} RQs · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
     </div>
     <div class="export-btns">
       <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
@@ -1662,236 +1651,145 @@ function showResults(res, errors, warnings) {
     </div>`;
   area.appendChild(hdr);
 
-  if (!active.length) return;
-
   // ── 1. OVERALL SUMMARY ──
-  // Overall average = avg of per-paper IRR (matches By Paper ID cards and export)
-  const paperNums = Object.keys(paperGroupResults).sort((a,b) => {
-    const na=parseFloat(a), nb=parseFloat(b);
-    return isNaN(na)||isNaN(nb) ? a.localeCompare(b) : na-nb;
-  });
-  const overallAvg = {};
-  active.forEach(m => {
-    const vals = paperNums.map(p => paperGroupResults[p][m]).filter(v => v !== null);
-    overallAvg[m] = vals.length ? avg(vals) : null;
-  });
-
-  const rqIds = Object.keys(rqIdResults).sort((a,b) => {
-    // Sort RQ IDs naturally: 1.1, 1.2, 2.1, etc.
-    const na = a.split('.').map(Number), nb = b.split('.').map(Number);
-    for (let i = 0; i < Math.max(na.length, nb.length); i++) {
-      const d = (na[i]||0) - (nb[i]||0);
-      if (d !== 0) return d;
-    }
-    return 0;
-  });
-  const showRQCards = rqIds.length > 0;
-
   const sb = document.createElement('div');
   sb.className = 'metric-block';
 
-  // Header
   let sh = `<div class="metric-block-header">
     <span class="metric-block-title">Overall Summary</span>
-    <span class="metric-block-sub">Average IRR · ${paperNums.length} paper${paperNums.length!==1?'s':''}</span>
+    <span class="metric-block-sub">All coders · ${pairs.length} pairs</span>
+  </div><div class="summary-body">`;
+
+  // Left: overall alpha
+  const ov = overallAlpha;
+  const ovDisp = ov !== null ? ov.toFixed(3) : '—';
+  sh += `<div class="summary-left">
+    <div class="score-cell" style="flex:1;">
+      <span class="score-value ${scoreClass(ov)}">${ovDisp}</span>
+      <span class="score-label">Krippendorff\'s α</span>
+      <span class="score-interp">${scoreInterp(ov)}</span>
+    </div>
   </div>`;
 
-  // Side-by-side body
-  sh += '<div class="summary-body">';
-
-  // LEFT: overall score cells stacked
-  sh += '<div class="summary-left">';
-  active.forEach(m => {
-    const ov = overallAvg[m];
-    const isP = m === 'pairwise';
-    const disp = ov !== null ? (isP ? (ov*100).toFixed(1)+'%' : ov.toFixed(3)) : '—';
-    sh += `<div class="score-cell" style="flex:1;border-bottom:1px solid var(--border);">
-      <span class="score-value ${scoreClass(ov)}">${disp}</span>
-      <span class="score-label">${METRIC_LABELS[m]}</span>
-      <span class="score-interp">${scoreInterp(ov)}</span>
+  // Right: by coder pair
+  sh += `<div class="summary-right"><div class="summary-right-label">By Coder Pair</div><div class="rq-cards-scroll">`;
+  pairs.forEach(([c1,c2]) => {
+    const key = `${c1} × ${c2}`;
+    const v = pairResults[key];
+    const disp = v !== null ? v.toFixed(3) : '—';
+    sh += `<div class="score-cell-rq">
+      <div class="score-rq-id" style="font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;">${key}</div>
+      <div class="score-metric-row">
+        <span class="score-mini-val ${scoreClass(v)}">${disp}</span>
+        <span class="score-mini-label">Krippendorff\'s α</span>
+      </div>
     </div>`;
   });
-  sh += '</div>'; // end summary-left
-
-  // RIGHT: subheading + scrollable Paper cards
-  sh += '<div class="summary-right">';
-  sh += `<div class="summary-right-label">By Paper ID</div>`;
-  sh += '<div class="rq-cards-scroll">';
-  if (paperNums.length > 0) {
-    paperNums.forEach(paperNum => {
-      const title = paperGroupTitle[paperNum] || '';
-      sh += `<div class="score-cell-rq">
-        <div class="score-rq-id" style="font-size:12px;font-weight:700;color:var(--text);">Paper ${paperNum}</div>
-        ${title ? `<div style="font-family:var(--mono);font-size:9px;color:var(--text-faint);margin-bottom:6px;line-height:1.4;max-width:180px;">${title}</div>` : ''}`;
-      active.forEach(m => {
-        const v = paperGroupResults[paperNum][m];
-        const isP = m === 'pairwise';
-        const disp = v !== null ? (isP ? (v*100).toFixed(1)+'%' : v.toFixed(3)) : '—';
-        sh += `<div class="score-metric-row">
-          <span class="score-mini-val ${scoreClass(v)}">${disp}</span>
-          <span class="score-mini-label">${METRIC_LABELS[m]}</span>
-        </div>`;
-      });
-      sh += '</div>';
-    });
-  } else {
-    // Fallback: use RQ-level papers if no Paper ID column
-    papers.forEach(pid => {
-      const label = paperLabelMap[pid] || '';
-      sh += `<div class="score-cell-rq">
-        <div class="score-rq-id" style="font-size:12px;font-weight:700;color:var(--text);">${pid}</div>
-        ${label ? `<div style="font-family:var(--mono);font-size:9px;color:var(--text-faint);margin-bottom:6px;line-height:1.4;max-width:180px;">${label}</div>` : ''}`;
-      active.forEach(m => {
-        const v = paperResults[pid][m];
-        const isP = m === 'pairwise';
-        const disp = v !== null ? (isP ? (v*100).toFixed(1)+'%' : v.toFixed(3)) : '—';
-        sh += `<div class="score-metric-row">
-          <span class="score-mini-val ${scoreClass(v)}">${disp}</span>
-          <span class="score-mini-label">${METRIC_LABELS[m]}</span>
-        </div>`;
-      });
-      sh += '</div>';
-    });
-  }
-  sh += '</div>'; // end rq-cards-scroll
-  sh += '</div>'; // end summary-right
-  sh += '</div>'; // end summary-body
-
+  sh += `</div></div></div>`;
   sb.innerHTML = sh;
   area.appendChild(sb);
 
-  // ── 2. PAPER-LEVEL TABLE with expandable RQ rows ──
-  const pb = document.createElement('div');
-  pb.className = 'metric-block';
+  // ── 2. CODER PAIR IRR TABLE (two-level accordion) ──
+  const tb = document.createElement('div');
+  tb.className = 'metric-block';
 
-  const papAvg = active.map(m => {
-    const v = papers.map(p => paperResults[p][m]).filter(v => v !== null);
-    return v.length ? avg(v) : null;
-  });
+  let th = `<div class="section-header">
+    Coder Pair IRR
+    <span class="pill">${pairs.length} pairs</span>
+    <span class="pill" style="color:var(--accent);border-color:rgba(107,138,253,.3)">▶ click pair for paper detail · click paper for RQ detail</span>
+  </div>
+  <div class="rq-table-wrap"><table>
+  <thead><tr><th>Coder Pair</th><th>Krippendorff\'s α</th></tr></thead><tbody>`;
 
-  let ph = `
-    <div class="section-header">
-      Research Question-Level IRR
-      <span class="pill">${papers.length} papers</span>
-      <span class="pill" style="color:var(--accent);border-color:rgba(107,138,253,.3)">▶ click row for variable detail</span>
-    </div>
-    <div class="rq-table-wrap"><table>
-    <thead><tr>
-      <th>${FIXED_PAPER_COL}</th>
-      ${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}
-    </tr></thead><tbody>`;
+  pairs.forEach(([c1,c2], pi) => {
+    const key = `${c1} × ${c2}`;
+    const v = pairResults[key];
+    const pairRowId = `pair-expand-${pi}`;
 
-  const tc = {nominal:'nom',ordinal:'ord',interval:'int'};
-  const tm = {nominal:'NOM',ordinal:'ORD',interval:'INT'};
-
-  papers.forEach((pid, pi) => {
-    const rowId = `rq-expand-${pi}`;
-    const idx = paperIndexMap[pid];
-    const label = paperLabelMap[pid];
-    // Display: RQ ID + research question label chip (no numeric index in display)
-    const labelChip = label
-      ? `<span class="paper-index" title="${label}">${label}</span>`
-      : '';
-    const pidDisplay = `${pid}${labelChip}`;
-
-    ph += `<tr class="paper-row" data-target="${rowId}">
-      <td style="font-family:var(--mono)">${pidDisplay}</td>
-      ${active.map(m=>`<td>${fmtVal(paperResults[pid][m],m==='pairwise')}</td>`).join('')}
+    // Pair row
+    th += `<tr class="pair-row" data-target="${pairRowId}">
+      <td style="font-family:var(--mono);font-weight:600;">${key}</td>
+      <td>${fmtVal(v, false)}</td>
     </tr>`;
 
-    let innerRows = '';
-    cols.forEach(col => {
-      const t = colTypes[col]||'nominal';
-      const perPaperColVals = active.map(m =>
-        metricErrors[m].length ? null : calcMetricFromRecords(
-          m, allRecords, r => r.rq === pid && r.field === col, coders
-        )
-      );
-      innerRows += `<tr>
-        <td style="font-family:var(--mono);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:28px" title="${col}">${col}</td>
-        <td><span class="col-type-badge ${tc[t]}">${tm[t]}</span></td>
-        ${perPaperColVals.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}
+    // Expandable paper sub-table
+    let paperRows = '';
+    paperNums.forEach((pNum, pni) => {
+      const pv = pairPaperResults[key][pNum];
+      const paperRowId = `paper-sub-${pi}-${pni}`;
+      const title = paperGroupTitle[pNum] || '';
+
+      // Paper sub-row
+      paperRows += `<tr class="paper-sub-row" data-target="${paperRowId}">
+        <td style="font-family:var(--mono);padding-left:24px;">
+          Paper ${pNum}${title ? `<span class="paper-index" title="${paperGroupTitleFull[pNum]}">${title}</span>` : ''}
+        </td>
+        <td>${fmtVal(pv, false)}</td>
+      </tr>`;
+
+      // RQ sub-rows
+      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
+      let rqRows = '';
+      rqList.forEach(rqId => {
+        const rv = pairPaperRQResults[key][pNum][rqId];
+        const label = rqLabelMap[rqId] || '';
+        rqRows += `<tr>
+          <td title="${rqLabelFull[rqId] || rqId}">${rqId}${label ? `<span class="paper-index">${label}</span>` : ''}</td>
+          <td>${fmtVal(rv, false)}</td>
+        </tr>`;
+      });
+
+      paperRows += `<tr class="rq-sub-row" id="${paperRowId}">
+        <td class="rq-sub-cell" colspan="2">
+          <div class="rq-sub-inner"><table><tbody>${rqRows}</tbody></table></div>
+        </td>
       </tr>`;
     });
 
-    ph += `<tr class="rq-expand-row" id="${rowId}">
-      <td class="rq-expand-cell" colspan="${1 + active.length}">
-        <div class="rq-inner">
-          <div class="rq-inner-header">Variable-level IRR · ${pid}${label ? ' — '+label : ''}</div>
-          <div class="rq-table-wrap"><table>
-            <thead><tr>
-              <th>Variable</th><th>Type</th>
-              ${active.map(m=>`<th>${METRIC_LABELS[m]}</th>`).join('')}
-            </tr></thead>
-            <tbody>${innerRows}</tbody>
-          </table></div>
+    th += `<tr class="pair-expand-row" id="${pairRowId}">
+      <td class="pair-expand-cell" colspan="2">
+        <div style="background:var(--surface2);">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;">
+            <tbody>${paperRows}</tbody>
+          </table>
         </div>
       </td>
     </tr>`;
   });
 
-  ph += `<tr style="background:var(--surface3)">
-    <td style="font-weight:600;font-family:var(--mono)">AVERAGE</td>
-    ${papAvg.map((v,i)=>`<td>${fmtVal(v,active[i]==='pairwise')}</td>`).join('')}
-  </tr>`;
-  ph += '</tbody></table></div>';
-  pb.innerHTML = ph;
+  th += '</tbody></table></div>';
+  tb.innerHTML = th;
 
-  pb.querySelectorAll('.paper-row').forEach(row => {
+  // Wire up pair accordion
+  tb.querySelectorAll('.pair-row').forEach(row => {
     row.addEventListener('click', () => {
       const target = document.getElementById(row.dataset.target);
       const isOpen = target.classList.contains('visible');
-      pb.querySelectorAll('.rq-expand-row.visible').forEach(r => r.classList.remove('visible'));
-      pb.querySelectorAll('.paper-row.expanded').forEach(r => r.classList.remove('expanded'));
-      if (!isOpen) {
-        target.classList.add('visible');
-        row.classList.add('expanded');
-      }
+      tb.querySelectorAll('.pair-expand-row.visible').forEach(r => r.classList.remove('visible'));
+      tb.querySelectorAll('.pair-row.expanded').forEach(r => r.classList.remove('expanded'));
+      if (!isOpen) { target.classList.add('visible'); row.classList.add('expanded'); }
     });
   });
 
-  area.appendChild(pb);
+  // Wire up paper sub-accordion (using event delegation on the table)
+  tb.addEventListener('click', e => {
+    const paperRow = e.target.closest('.paper-sub-row');
+    if (!paperRow) return;
+    e.stopPropagation();
+    const targetId = paperRow.dataset.target;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const isOpen = target.classList.contains('visible');
+    // Close siblings in same pair expand block
+    const pairExpand = paperRow.closest('.pair-expand-row');
+    if (pairExpand) {
+      pairExpand.querySelectorAll('.rq-sub-row.visible').forEach(r => r.classList.remove('visible'));
+      pairExpand.querySelectorAll('.paper-sub-row.expanded').forEach(r => r.classList.remove('expanded'));
+    }
+    if (!isOpen) { target.classList.add('visible'); paperRow.classList.add('expanded'); }
+  });
 
-  // ── 3. PAIRWISE DETAIL (collapsible) ──
-  if (active.includes('pairwise') && coders.length >= 2) {
-    const pairs = [];
-    for (let i=0;i<coders.length;i++) for (let j=i+1;j<coders.length;j++) pairs.push([coders[i],coders[j]]);
-    const pairBlock = document.createElement('div');
-    pairBlock.className = 'metric-block';
-
-    let pairHtml = `<div class="section-toggle-header" id="pairToggleHdr">
-      Pairwise Agreement Detail
-      <span class="pill">${pairs.length} pair${pairs.length>1?'s':''}</span>
-      <span class="toggle-arrow">▼</span>
-    </div>
-    <div class="section-toggle-body" id="pairToggleBody">
-      <div class="rq-table-wrap"><table>
-      <thead><tr><th>Pair</th>${cols.map(c=>`<th title="${c}">${c.length>14?c.slice(0,12)+'…':c}</th>`).join('')}<th>Avg</th></tr></thead><tbody>`;
-
-    pairs.forEach(([ca,cb]) => {
-      const colVals = cols.map(col => {
-        // Per-column pairwise for this specific pair using records
-        const pairRecords = allRecords.filter(r => r.field === col && (r.coder === ca || r.coder === cb));
-        return pairwiseAgreementFromRecords(pairRecords, null);
-      });
-      const rowAvg = colVals.filter(v=>v!==null).length ? avg(colVals.filter(v=>v!==null)) : null;
-      pairHtml += `<tr>
-        <td><span class="pair-badge">👤 ${ca} × ${cb}</span></td>
-        ${colVals.map(v=>`<td>${fmtVal(v,true)}</td>`).join('')}
-        <td>${fmtVal(rowAvg,true)}</td>
-      </tr>`;
-    });
-
-    pairHtml += '</tbody></table></div></div>';
-    pairBlock.innerHTML = pairHtml;
-
-    pairBlock.querySelector('#pairToggleHdr').addEventListener('click', () => {
-      pairBlock.querySelector('#pairToggleHdr').classList.toggle('open');
-      pairBlock.querySelector('#pairToggleBody').classList.toggle('open');
-    });
-
-    area.appendChild(pairBlock);
-  }
+  area.appendChild(tb);
 }
 
 function banner(type,icon,msg) {
@@ -1903,165 +1801,121 @@ function banner(type,icon,msg) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   if (!lastResults) return;
-  const {paperGroupResults, paperGroupTitleFull,
-         papers, metrics, metricErrors} = lastResults;
-  const active = metrics.filter(m=>!metricErrors[m].length);
+  const {overallAlpha, pairs, pairResults, pairPaperResults, pairPaperRQResults,
+         paperNums, paperNumToRQs, paperGroupTitleFull, rqLabelFull} = lastResults;
+  const pk = (c1,c2) => `${c1} × ${c2}`;
+  const fmt = v => v !== null ? v.toFixed(4) : 'N/A';
 
-  const paperNums = Object.keys(paperGroupResults).sort((a,b)=>{
-    const na=parseFloat(a),nb=parseFloat(b); return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;
-  });
-
-  // Overall = average of paperGroupResults (matches display)
-  const overallAvg = {};
-  active.forEach(m => {
-    const vals = paperNums.map(p=>paperGroupResults[p][m]).filter(v=>v!==null);
-    overallAvg[m] = vals.length ? avg(vals) : null;
-  });
-
-  const metricHeaders = active.map(m => METRIC_LABELS[m]);
   const lines = [];
-
-  // Overall Summary
-  lines.push(['OVERALL SUMMARY', ...metricHeaders].join(','));
-  lines.push(['Overall IRR', ...active.map(m => {
-    const v = overallAvg[m];
-    return v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
-  })].join(','));
+  lines.push(['OVERALL SUMMARY', "Krippendorff's α"].join(','));
+  lines.push(['Overall IRR', fmt(overallAlpha)].join(','));
   lines.push('');
 
-  // By Paper ID
-  lines.push(['BY PAPER ID', 'Paper Title', ...metricHeaders].join(','));
-  paperNums.forEach(paperNum => {
-    const title = paperGroupTitleFull[paperNum] || '';
-    const row = [`Paper ${paperNum}`, JSON.stringify(title), ...active.map(m => {
-      const v = paperGroupResults[paperNum][m];
-      return v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
-    })];
-    lines.push(row.join(','));
+  lines.push(['BY CODER PAIR', "Krippendorff's α"].join(','));
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    lines.push([key, fmt(pairResults[key])].join(','));
   });
-  // AVERAGE row from paperGroupResults
-  lines.push(['AVERAGE', '', ...active.map(m => {
-    const v = overallAvg[m];
-    return v !== null ? (m==='pairwise'?(v*100).toFixed(1)+'%':v.toFixed(4)) : 'N/A';
-  })].join(','));
+  lines.push('');
+
+  lines.push(['CODER PAIR DETAIL', 'Paper / RQ', "Krippendorff's α"].join(','));
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    lines.push([key, '', fmt(pairResults[key])].join(','));
+    paperNums.forEach(pNum => {
+      const title = paperGroupTitleFull[pNum] || '';
+      lines.push(['', JSON.stringify(`Paper ${pNum} — ${title}`), fmt(pairPaperResults[key][pNum])].join(','));
+      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
+      rqList.forEach(rqId => {
+        const rqText = rqLabelFull[rqId] || rqId;
+        lines.push(['', JSON.stringify(`  ${rqId}: ${rqText}`), fmt(pairPaperRQResults[key][pNum][rqId])].join(','));
+      });
+    });
+    lines.push('');
+  });
 
   dlBlob(new Blob([lines.join('\n')],{type:'text/csv'}), 'irr_results.csv');
 }
 
 function exportXLSX() {
   if (!lastResults) return;
-  const {paperGroupResults, paperGroupTitleFull,
-         metrics, metricErrors} = lastResults;
-  const active = metrics.filter(m=>!metricErrors[m].length);
-
-  const paperNums = Object.keys(paperGroupResults).sort((a,b)=>{
-    const na=parseFloat(a),nb=parseFloat(b); return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;
-  });
-
-  // Overall = average of paperGroupResults (matches display)
-  const overallAvg = {};
-  active.forEach(m => {
-    const vals = paperNums.map(p=>paperGroupResults[p][m]).filter(v=>v!==null);
-    overallAvg[m] = vals.length ? avg(vals) : null;
-  });
+  const {overallAlpha, pairs, pairResults, pairPaperResults, pairPaperRQResults,
+         paperNums, paperNumToRQs, paperGroupTitleFull, rqLabelFull} = lastResults;
+  const pk = (c1,c2) => `${c1} × ${c2}`;
+  const fmt = v => v !== null ? parseFloat(v.toFixed(4)) : 'N/A';
 
   const wb = XLSX.utils.book_new();
   const wsData = [];
 
-  // ── OVERALL SUMMARY ──
-  wsData.push(['OVERALL SUMMARY', ...active.map(m => METRIC_LABELS[m])]);
-  wsData.push(['Overall IRR', ...active.map(m => {
-    const v = overallAvg[m];
-    return v !== null ? (m==='pairwise' ? parseFloat((v*100).toFixed(1)) : parseFloat(v.toFixed(4))) : 'N/A';
-  })]);
+  // ── OVERALL ──
+  wsData.push(['OVERALL SUMMARY', "Krippendorff's α"]);
+  wsData.push(['Overall IRR', fmt(overallAlpha)]);
   wsData.push([]);
 
-  // ── BY PAPER ID ──
-  wsData.push(['BY PAPER ID', 'Paper Title', ...active.map(m => METRIC_LABELS[m])]);
-  paperNums.forEach(paperNum => {
-    const title = paperGroupTitleFull[paperNum] || '';
-    wsData.push([
-      `Paper ${paperNum}`,
-      title,
-      ...active.map(m => {
-        const v = paperGroupResults[paperNum][m];
-        return v !== null ? (m==='pairwise' ? parseFloat((v*100).toFixed(1)) : parseFloat(v.toFixed(4))) : 'N/A';
-      })
-    ]);
+  // ── BY CODER PAIR summary ──
+  wsData.push(['BY CODER PAIR', "Krippendorff's α"]);
+  pairs.forEach(([c1,c2]) => {
+    wsData.push([pk(c1,c2), fmt(pairResults[pk(c1,c2)])]);
   });
-  const avgRow = ['AVERAGE', '', ...active.map(m => {
-    const v = overallAvg[m];
-    return v !== null ? (m==='pairwise' ? parseFloat((v*100).toFixed(1)) : parseFloat(v.toFixed(4))) : 'N/A';
-  })];
-  wsData.push(avgRow);
+  wsData.push([]);
+
+  // ── DETAIL: pair > paper > RQ ──
+  wsData.push(['CODER PAIR DETAIL', 'Paper / RQ', "Krippendorff's α"]);
+  pairs.forEach(([c1,c2]) => {
+    const key = pk(c1,c2);
+    wsData.push([key, '', fmt(pairResults[key])]);
+    paperNums.forEach(pNum => {
+      const title = paperGroupTitleFull[pNum] || '';
+      wsData.push(['', `Paper ${pNum} — ${title}`, fmt(pairPaperResults[key][pNum])]);
+      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
+      rqList.forEach(rqId => {
+        const rqText = rqLabelFull[rqId] || rqId;
+        wsData.push(['', `  ${rqId}: ${rqText}`, fmt(pairPaperRQResults[key][pNum][rqId])]);
+      });
+    });
+    wsData.push([]);
+  });
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  const totalCols = 2 + active.length;
+  ws['!cols'] = [{ wch: 28 }, { wch: 60 }, { wch: 20 }];
 
-  ws['!cols'] = [
-    { wch: 14 },
-    { wch: 55 },
-    ...active.map(() => ({ wch: 18 }))
-  ];
-
-  // Style all cells
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let R = range.s.r; R <= range.e.r; R++) {
     for (let C = range.s.c; C <= range.e.c; C++) {
       const addr = XLSX.utils.encode_cell({r:R, c:C});
       if (!ws[addr]) continue;
-      const isOverallHeader = R === 0;
-      const isOverallData   = R === 1;
-      const isPaperHeader   = R === 3;
-      const isAverageRow    = R === wsData.length - 1;
-      const isPaperData     = R >= 4 && R < wsData.length - 1;
-
-      ws[addr].s = {
-        font: {
-          name: 'Calibri', sz: isOverallHeader || isPaperHeader ? 11 : 10,
-          bold: isOverallHeader || isPaperHeader || isOverallData || isAverageRow,
-          color: { rgb: isOverallHeader || isPaperHeader ? 'FFFFFF' : '1A1A2E' }
+      const cell = ws[addr];
+      const val = cell.v;
+      // Detect row type
+      const isHeader = val === 'OVERALL SUMMARY' || val === 'BY CODER PAIR' || val === 'CODER PAIR DETAIL';
+      const isOverallData = R === 1;
+      const isPairSummary = R >= 4 && R < 4 + pairs.length;
+      const isPairHeader = typeof val === 'string' && pairs.some(([c1,c2]) => val === `${c1} × ${c2}`) && C === 0;
+      cell.s = {
+        font: { name: 'Calibri', sz: isHeader ? 11 : 10,
+          bold: isHeader || isPairHeader || isOverallData,
+          color: { rgb: isHeader ? 'FFFFFF' : '1A1A2E' }
         },
-        fill: {
-          patternType: 'solid',
-          fgColor: { rgb:
-            isOverallHeader ? '4A5FA8' :
-            isPaperHeader   ? '2E3550' :
-            isOverallData   ? 'E8ECF8' :
-            isAverageRow    ? 'D0D5E8' :
-            isPaperData && R % 2 === 0 ? 'F5F6FA' : 'FFFFFF'
-          }
-        },
-        alignment: {
-          horizontal: C >= 2 ? 'center' : 'left',
-          vertical: 'center',
-          wrapText: C === 1
-        },
-        border: {
-          bottom: { style: 'thin', color: { rgb: 'C5CAD8' } },
-          right:  { style: 'thin', color: { rgb: 'C5CAD8' } }
-        }
+        fill: { patternType: 'solid', fgColor: { rgb:
+          isHeader ? '4A5FA8' : isPairHeader ? '2E3550' :
+          isOverallData ? 'E8ECF8' : 'FFFFFF'
+        }},
+        alignment: { horizontal: C === 2 ? 'center' : 'left', vertical: 'center', wrapText: C === 1 },
+        border: { bottom: { style: 'thin', color: { rgb: 'C5CAD8' }}, right: { style: 'thin', color: { rgb: 'C5CAD8' }}}
       };
-
-      // Color-code metric values
-      if (C >= 2 && (isPaperData || isOverallData) && ws[addr].t === 'n') {
-        const m = active[C - 2];
-        const normVal = m === 'pairwise' ? ws[addr].v / 100 : ws[addr].v;
-        const color = normVal >= 0.8 ? '1A7A4A' : normVal >= 0.6 ? 'B45309' : 'B91C1C';
-        ws[addr].s.font.color = { rgb: color };
-        ws[addr].s.font.bold = true;
+      // Color-code alpha values
+      if (C === 2 && cell.t === 'n') {
+        const color = val >= 0.8 ? '1A7A4A' : val >= 0.6 ? 'B45309' : 'B91C1C';
+        cell.s.font.color = { rgb: color };
+        cell.s.font.bold = true;
       }
     }
   }
 
-  ws['!merges'] = [
-    { s:{r:0,c:0}, e:{r:0,c:totalCols-1} },
-    { s:{r:3,c:0}, e:{r:3,c:0} },
-  ];
-
   XLSX.utils.book_append_sheet(wb, ws, 'IRR Results');
   XLSX.writeFile(wb, 'irr_results.xlsx');
 }
+
 
 function dlBlob(blob, name) {
   const url = URL.createObjectURL(blob);
