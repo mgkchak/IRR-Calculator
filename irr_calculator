@@ -208,6 +208,7 @@
   .col-type-badge.nom { color: #60a5fa; border-color: #60a5fa33; }
   .col-type-badge.ord { color: #a78bfa; border-color: #a78bfa33; }
   .col-type-badge.int { color: #34d399; border-color: #34d39933; }
+  .col-type-badge.fre { color: var(--warn); border-color: #f59e0b44; }
 
   .col-type-selector { display: none; margin-top: 2px; padding: 3px 0 3px 24px; }
   .col-type-selector.visible { display: flex; gap: 5px; }
@@ -996,42 +997,48 @@ function buildColPicker(versionKey) {
 
   allColumns.filter(c => !exclude.has(c)).forEach(c => {
     const type = colTypes[c] || 'nominal';
-    const isMetricCol = /^Metric\d+-/.test(c);
+    const ft = isFreeText(c);
+    const isMetricColFlag = /^Metric\d+-/.test(c);
     const shouldPreCheck = versionCols.has(c) &&
-      (!isMetricCol || metricsWithData.has(c));
+      (!isMetricColFlag || metricsWithData.has(c)) &&
+      !ft; // free-text fields shown but not pre-checked
 
     const wrap = document.createElement('div');
 
     const item = document.createElement('label');
     item.className = 'col-item';
+    const badgeClass = ft ? 'fre' : type.slice(0,3);
+    const badgeText = ft ? '⚠ free-text' : type.slice(0,3).toUpperCase();
     item.innerHTML = `
       <input type="checkbox" class="col-check" data-col="${esc(c)}" ${shouldPreCheck ? 'checked' : ''}>
       <span class="col-name" title="${esc(c)}">${c.length > 28 ? c.slice(0,26)+'…' : c}</span>
-      <span class="col-type-badge ${type.slice(0,3)}">${type.slice(0,3).toUpperCase()}</span>
+      <span class="col-type-badge ${badgeClass}">${badgeText}</span>
     `;
 
     const typeRow = document.createElement('div');
     typeRow.className = `col-type-selector${shouldPreCheck ? ' visible' : ''}`;
-    ['nominal','ordinal','interval'].forEach(t => {
-      const btn = document.createElement('button');
-      btn.className = `type-btn ${type === t ? 'active-'+t.slice(0,3) : ''}`;
-      btn.textContent = t; btn.dataset.type = t;
-      btn.addEventListener('click', e => {
-        e.preventDefault();
-        colTypes[c] = t;
-        typeRow.querySelectorAll('.type-btn').forEach(b => {
-          b.className = `type-btn ${b.dataset.type === t ? 'active-'+t.slice(0,3) : ''}`;
+    if (!ft) {
+      ['nominal','ordinal','interval'].forEach(t => {
+        const btn = document.createElement('button');
+        btn.className = `type-btn ${type === t ? 'active-'+t.slice(0,3) : ''}`;
+        btn.textContent = t; btn.dataset.type = t;
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          colTypes[c] = t;
+          typeRow.querySelectorAll('.type-btn').forEach(b => {
+            b.className = `type-btn ${b.dataset.type === t ? 'active-'+t.slice(0,3) : ''}`;
+          });
+          item.querySelector('.col-type-badge').className = `col-type-badge ${t.slice(0,3)}`;
+          item.querySelector('.col-type-badge').textContent = t.slice(0,3).toUpperCase();
         });
-        item.querySelector('.col-type-badge').className = `col-type-badge ${t.slice(0,3)}`;
-        item.querySelector('.col-type-badge').textContent = t.slice(0,3).toUpperCase();
+        typeRow.appendChild(btn);
       });
-      typeRow.appendChild(btn);
-    });
+    }
 
     if (shouldPreCheck) selectedCols.add(c);
 
     item.querySelector('.col-check').addEventListener('change', function() {
-      if (this.checked) { selectedCols.add(c); typeRow.classList.add('visible'); }
+      if (this.checked) { selectedCols.add(c); if (!ft) typeRow.classList.add('visible'); }
       else { selectedCols.delete(c); typeRow.classList.remove('visible'); }
       updatePickerCount();
     });
@@ -1121,33 +1128,23 @@ document.getElementById('runBtn').addEventListener('click', () => {
   if (metrics.length === 0) errors.push('Please select at least one metric.');
   if (errors.length) { showResults(null, errors, []); return; }
 
-  let wideData = parseLong(rawData, paperCol, coderCol, cols);
-
-  // Remove excluded coder values (e.g. "String" artifact)
-  Object.keys(wideData).forEach(pid => {
-    Object.keys(wideData[pid]).forEach(cid => {
-      if (EXCLUDED_CODERS.has(cid.toLowerCase())) delete wideData[pid][cid];
-    });
-  });
-
+  // Build allowed coder set from filter
+  let allowedCoders = null;
   const filterOn = document.getElementById('filterCoders').checked;
   if (filterOn) {
-    const allowed = new Set([...document.querySelectorAll('.coder-check:checked')].map(el => el.value));
-    Object.keys(wideData).forEach(pid => {
-      wideData[pid] = Object.fromEntries(Object.entries(wideData[pid]).filter(([cid]) => allowed.has(cid)));
-    });
+    allowedCoders = new Set([...document.querySelectorAll('.coder-check:checked')].map(el => el.value));
   }
 
-  const ARTIFACT_ROW = 'numerical (index identifier)';
-  const papers = Object.keys(wideData).filter(pid => {
-    const t = pid.trim();
-    if (!t) return false;
-    if (/^\d+$/.test(t)) return false; // bare integer artifact rows
-    if (t.toLowerCase() === ARTIFACT_ROW) return false;
-    return true;
-  });
-  const coders = [...new Set(papers.flatMap(p => Object.keys(wideData[p])))];
+  // Build flat records list — the canonical data structure for all IRR
+  const allRecords = buildRecords(rawData, paperCol, coderCol, cols, allowedCoders);
+
+  // Derive papers (RQ IDs) and coders from records
+  const papers = [...new Set(allRecords.map(r => r.rq))].sort();
+  const coders = [...new Set(allRecords.map(r => r.coder))].sort();
   const nCoders = coders.length;
+
+  // Detect free-text columns that are selected — warn user
+  const freetextSelected = cols.filter(c => isFreeText(c));
 
   const metricErrors = {}, metricWarnings = {};
   metrics.forEach(m => {
@@ -1162,21 +1159,27 @@ document.getElementById('runBtn').addEventListener('click', () => {
     }
   });
 
+  // ── Per-RQ (paper) IRR — pooled over all fields for that RQ ──
+  const paperResults = {};
+  papers.forEach(rqId => {
+    paperResults[rqId] = {};
+    metrics.forEach(m => {
+      if (metricErrors[m].length) { paperResults[rqId][m] = null; return; }
+      paperResults[rqId][m] = calcMetricFromRecords(
+        m, allRecords, r => r.rq === rqId, coders
+      );
+    });
+  });
+
+  // ── Per-field IRR — pooled over all RQs for that field ──
   const rqResults = {};
   cols.forEach(col => {
     rqResults[col] = {};
     metrics.forEach(m => {
-      rqResults[col][m] = metricErrors[m].length ? null : calcMetric(m, wideData, papers, coders, col);
-    });
-  });
-
-  const paperResults = {};
-  papers.forEach(pid => {
-    paperResults[pid] = {};
-    metrics.forEach(m => {
-      if (metricErrors[m].length) { paperResults[pid][m] = null; return; }
-      const vals = cols.map(c => calcMetric(m, {[pid]: wideData[pid]}, [pid], coders, c)).filter(v => v !== null);
-      paperResults[pid][m] = vals.length ? avg(vals) : null;
+      if (metricErrors[m].length) { rqResults[col][m] = null; return; }
+      rqResults[col][m] = calcMetricFromRecords(
+        m, allRecords, r => r.field === col, coders
+      );
     });
   });
 
@@ -1233,11 +1236,15 @@ document.getElementById('runBtn').addEventListener('click', () => {
   const paperGroupRQs = {};
 
   if (paperCol === PAPER_ID_COL) {
-    // paperCol IS Paper ID — each pid in papers is already a paper number
-    // Use paperResults directly; grab title from rawData
     papers.forEach(pid => {
-      paperGroupResults[pid] = paperResults[pid];
+      paperGroupResults[pid] = {};
       paperGroupRQs[pid] = [pid];
+      metrics.forEach(m => {
+        if (metricErrors[m].length) { paperGroupResults[pid][m] = null; return; }
+        paperGroupResults[pid][m] = calcMetricFromRecords(
+          m, allRecords, r => r.paper === pid, coders
+        );
+      });
       const matchRow = rawData.find(row => String(row[paperCol]) === pid);
       const title = matchRow && matchRow[PAPER_TITLE_COL]
         ? String(matchRow[PAPER_TITLE_COL]).trim() : '';
@@ -1245,7 +1252,6 @@ document.getElementById('runBtn').addEventListener('click', () => {
       paperGroupTitle[pid] = title.length > 50 ? title.slice(0, 48) + '…' : title;
     });
   } else if (allColumns.includes(PAPER_ID_COL)) {
-    // paperCol is Research Question ID — group RQ pids by their Paper ID
     const paperNumToRQs = {};
     rawData.forEach(row => {
       const rqPid = String(row[paperCol]);
@@ -1266,8 +1272,10 @@ document.getElementById('runBtn').addEventListener('click', () => {
       paperGroupResults[paperNum] = {};
       metrics.forEach(m => {
         if (metricErrors[m].length) { paperGroupResults[paperNum][m] = null; return; }
-        const vals = rqList.map(pid => paperResults[pid][m]).filter(v => v !== null);
-        paperGroupResults[paperNum][m] = vals.length ? avg(vals) : null;
+        // Pool ALL records for this paper (across all its RQs)
+        paperGroupResults[paperNum][m] = calcMetricFromRecords(
+          m, allRecords, r => r.paper === paperNum, coders
+        );
       });
     });
   }
@@ -1276,7 +1284,7 @@ document.getElementById('runBtn').addEventListener('click', () => {
     paperIndexMap, paperLabelMap, _rqTextFull: rqTextFull,
     paperGroupResults, paperGroupTitle, paperGroupTitleFull, paperGroupRQs,
     cols, papers, coders, metrics, metricErrors, metricWarnings,
-    _wide: wideData };
+    allRecords, freetextSelected };
   showResults(lastResults, [], []);
 });
 
@@ -1313,24 +1321,255 @@ function parseWide(data, paperCol, cols) {
 }
 
 // ═══════════════════════════════════════════
-// IRR MATH
+// VALUE NORMALIZATION
+// ═══════════════════════════════════════════
+
+// Free-text fields excluded from IRR (exact-string matching is unreliable)
+const FREETEXT_FIELDS = new Set([
+  'research question',
+  'tested llm model & version used',
+  'tested model & techniques list',
+  'baseline list',
+]);
+
+// Tokens treated as missing
+const MISSING_TOKENS = new Set(['', 'n/a', 'na', 'none', '-', '--', 'n.a.', 'tbd', '?']);
+
+function isFreeText(colName) {
+  return FREETEXT_FIELDS.has(colName.trim().toLowerCase());
+}
+
+function isNumericCol(colName) {
+  // Heuristic: column name contains "number", "total", "count", "min", "max",
+  // or ends with a number-like suffix
+  return /\b(number|total|count|min|max|baseline value|baseline difference)\b/i.test(colName);
+}
+
+function isMultiselect(colName) {
+  return /list$/i.test(colName) && !isFreeText(colName);
+}
+
+function normalizeValue(raw, colName) {
+  if (raw === null || raw === undefined) return null;
+  let s = String(raw).trim();
+  if (MISSING_TOKENS.has(s.toLowerCase())) return null;
+
+  // Numeric normalization: parse and normalize so "85" == "85.0"
+  if (isNumericCol(colName)) {
+    const isPct = s.endsWith('%');
+    const stripped = s.replace(/%$/, '').replace(/,/g, '').trim();
+    const n = parseFloat(stripped);
+    if (!isNaN(n)) {
+      const val = isPct ? n / 100 : n;
+      const rounded = Math.round(val * 10000) / 10000;
+      return rounded === Math.floor(rounded) ? String(Math.floor(rounded)) : String(rounded);
+    }
+  }
+
+  // Multiselect: sort order-independently
+  if (isMultiselect(colName) && s.includes(',')) {
+    const parts = s.split(',').map(p => p.trim().toLowerCase()).filter(Boolean).sort();
+    return parts.length ? parts.join('|') : null;
+  }
+
+  return s.toLowerCase();
+}
+
+// ═══════════════════════════════════════════
+// RECORDS — flat list of (paper, rq, field, coder, value)
+// This is the canonical data structure for all IRR calculations
+// ═══════════════════════════════════════════
+function buildRecords(rawData, paperCol, coderCol, cols, allowedCoders) {
+  const PAPER_ID_COL = 'Paper ID';
+  const ARTIFACT_ROW = 'numerical (index identifier)';
+
+  const records = []; // {paper, rq, field, coder, value}
+
+  rawData.forEach(row => {
+    const rqId = String(row[paperCol] ?? '').trim();
+    if (!rqId || /^\d+$/.test(rqId)) return; // bare integer artifacts
+    if (rqId.toLowerCase() === ARTIFACT_ROW) return;
+
+    const coder = String(row[coderCol] ?? '').trim();
+    if (!coder || EXCLUDED_CODERS.has(coder.toLowerCase())) return;
+    if (allowedCoders && !allowedCoders.has(coder)) return;
+
+    // Paper ID for grouping
+    const paperId = row[PAPER_ID_COL] !== undefined
+      ? String(row[PAPER_ID_COL]).trim() : rqId;
+
+    cols.forEach(col => {
+      const raw = row[col];
+      const value = normalizeValue(raw, col);
+      if (value === null) return; // skip missing
+      records.push({ paper: paperId, rq: rqId, field: col, coder, value });
+    });
+  });
+
+  return records;
+}
+
+// ═══════════════════════════════════════════
+// IRR MATH — pooled coincidence matrix
 // ═══════════════════════════════════════════
 function avg(arr) { return arr.reduce((a,b) => a+b, 0)/arr.length; }
 
-function calcMetric(metric, wideData, papers, coders, col) {
-  const matrix = coders.map(coder =>
-    papers.map(paper => {
-      const v = wideData[paper]?.[coder]?.[col];
-      return (v === '' || v == null) ? null : v;
-    })
-  );
-  if (metric === 'alpha')    return krippendorffAlpha(matrix, colTypes[col] || 'nominal');
-  if (metric === 'pairwise') return pairwiseAgreement(matrix);
-  if (metric === 'cohen')    return cohensKappa(matrix);
-  if (metric === 'fleiss')   return fleissKappa(matrix, papers);
+// Core pooled Krippendorff's alpha (nominal)
+// records: [{paper, rq, field, coder, value}]
+// filterFn: optional fn(record) => bool to restrict scope
+function krippendorffAlphaPooled(records, filterFn) {
+  // Group by (paper, rq, field) unit -> {coder -> value}
+  const units = new Map();
+  const filtered = filterFn ? records.filter(filterFn) : records;
+
+  filtered.forEach(({paper, rq, field, coder, value}) => {
+    const key = `${paper}\x00${rq}\x00${field}`;
+    if (!units.has(key)) units.set(key, {});
+    units.get(key)[coder] = value;
+  });
+
+  // Build coincidence matrix
+  const coinc = new Map(); // "va\x00vb" -> count
+  const mu = new Map();    // value -> marginal count
+
+  units.forEach(coderMap => {
+    const vals = Object.values(coderMap);
+    const m = vals.length;
+    if (m < 2) return;
+    const cnt = new Map();
+    vals.forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1));
+    cnt.forEach((ca, a) => {
+      cnt.forEach((cb, b) => {
+        const pairs = a === b ? ca * (ca - 1) : ca * cb;
+        const w = pairs / (m - 1);
+        const key = `${a}\x00${b}`;
+        coinc.set(key, (coinc.get(key) || 0) + w);
+        mu.set(a, (mu.get(a) || 0) + w);
+      });
+    });
+  });
+
+  const n = [...mu.values()].reduce((s, v) => s + v, 0);
+  if (n < 2) return null;
+
+  const vals = [...mu.keys()];
+  // Observed disagreement
+  let Do = 0;
+  vals.forEach(a => vals.forEach(b => {
+    if (a !== b) Do += (coinc.get(`${a}\x00${b}`) || 0);
+  }));
+  Do /= n;
+
+  // Expected disagreement
+  let De = 0;
+  vals.forEach(a => vals.forEach(b => {
+    if (a !== b) De += mu.get(a) * mu.get(b);
+  }));
+  De /= (n * (n - 1));
+
+  if (De === 0) return 1;
+  return 1 - Do / De;
+}
+
+// Pairwise % agreement from records
+function pairwiseAgreementFromRecords(records, filterFn) {
+  const filtered = filterFn ? records.filter(filterFn) : records;
+  // Group by unit
+  const units = new Map();
+  filtered.forEach(({paper, rq, field, coder, value}) => {
+    const key = `${paper}\x00${rq}\x00${field}`;
+    if (!units.has(key)) units.set(key, {});
+    units.get(key)[coder] = value;
+  });
+
+  const pairs = [];
+  units.forEach(coderMap => {
+    const entries = Object.entries(coderMap);
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i+1; j < entries.length; j++) {
+        pairs.push(entries[i][1] === entries[j][1] ? 1 : 0);
+      }
+    }
+  });
+  return pairs.length ? avg(pairs) : null;
+}
+
+// Cohen's kappa from records (exactly 2 coders)
+function cohensKappaFromRecords(records, filterFn, coders) {
+  if (coders.length !== 2) return null;
+  const [c1, c2] = coders;
+  const filtered = filterFn ? records.filter(filterFn) : records;
+
+  const units = new Map();
+  filtered.forEach(({paper, rq, field, coder, value}) => {
+    const key = `${paper}\x00${rq}\x00${field}`;
+    if (!units.has(key)) units.set(key, {});
+    units.get(key)[coder] = value;
+  });
+
+  const pairs = [];
+  units.forEach(coderMap => {
+    const a = coderMap[c1], b = coderMap[c2];
+    if (a !== undefined && b !== undefined) pairs.push([a, b]);
+  });
+  if (!pairs.length) return null;
+
+  const N = pairs.length;
+  const cats = [...new Set(pairs.flat())];
+  const po = pairs.filter(([a,b]) => a === b).length / N;
+  let pe = 0;
+  cats.forEach(c => {
+    const pa = pairs.filter(([a]) => a === c).length / N;
+    const pb = pairs.filter(([,b]) => b === c).length / N;
+    pe += pa * pb;
+  });
+  return pe >= 1 ? 1 : (po - pe) / (1 - pe);
+}
+
+// Fleiss' kappa from records (3+ coders)
+function fleissKappaFromRecords(records, filterFn) {
+  const filtered = filterFn ? records.filter(filterFn) : records;
+  const units = new Map();
+  filtered.forEach(({paper, rq, field, coder, value}) => {
+    const key = `${paper}\x00${rq}\x00${field}`;
+    if (!units.has(key)) units.set(key, {});
+    units.get(key)[coder] = value;
+  });
+
+  const unitArr = [...units.values()].filter(m => Object.keys(m).length >= 2);
+  if (!unitArr.length) return null;
+
+  const cats = [...new Set(unitArr.flatMap(m => Object.values(m)))];
+
+  const nij = unitArr.map(m => {
+    const counts = Object.fromEntries(cats.map(c => [c, 0]));
+    Object.values(m).forEach(v => { if (counts[v] !== undefined) counts[v]++; });
+    return counts;
+  });
+  const ni = nij.map(row => Object.values(row).reduce((a,b) => a+b, 0));
+  const N = ni.reduce((a,b) => a+b, 0);
+  if (!N) return null;
+
+  const Pi = nij.map((row, i) => {
+    const t = ni[i]; if (t <= 1) return 0;
+    return cats.reduce((acc, c) => acc + row[c]*(row[c]-1), 0) / (t*(t-1));
+  });
+  const Pbar = avg(Pi);
+  const Pj = cats.map(c => nij.reduce((acc, row) => acc + row[c], 0) / N);
+  const Pe = Pj.reduce((acc, p) => acc + p*p, 0);
+  return Pe >= 1 ? 1 : (Pbar - Pe) / (1 - Pe);
+}
+
+// Unified entry point — dispatches to the correct pooled function
+function calcMetricFromRecords(metric, records, filterFn, coders) {
+  if (metric === 'alpha')    return krippendorffAlphaPooled(records, filterFn);
+  if (metric === 'pairwise') return pairwiseAgreementFromRecords(records, filterFn);
+  if (metric === 'cohen')    return cohensKappaFromRecords(records, filterFn, coders);
+  if (metric === 'fleiss')   return fleissKappaFromRecords(records, filterFn);
   return null;
 }
 
+// Keep old matrix-based helpers for legacy use in pairwise detail table
 function pairwiseAgreement(matrix) {
   const n = matrix[0].length;
   const pairs = [];
@@ -1345,97 +1584,6 @@ function pairwiseAgreement(matrix) {
     }
   }
   return pairs.length ? avg(pairs) : null;
-}
-
-function cohensKappa(matrix) {
-  if (matrix.length !== 2) return null;
-  const [a, b] = matrix;
-  const n = a.length;
-  const cats = [...new Set([...a,...b].filter(v=>v!==null).map(String))];
-  const valid = a.map((v,i) => v!==null && b[i]!==null);
-  const N = valid.filter(Boolean).length;
-  if (N === 0 || cats.length === 0) return null;
-  let po = 0;
-  for (let i = 0; i < n; i++) if (valid[i] && String(a[i])===String(b[i])) po++;
-  po /= N;
-  let pe = 0;
-  cats.forEach(c => {
-    const pa = a.filter((v,i)=>valid[i]&&String(v)===c).length/N;
-    const pb = b.filter((v,i)=>valid[i]&&String(v)===c).length/N;
-    pe += pa*pb;
-  });
-  return pe >= 1 ? 1 : (po-pe)/(1-pe);
-}
-
-function fleissKappa(matrix, papers) {
-  const nR = matrix.length, nI = papers.length;
-  const catSet = new Set();
-  matrix.forEach(row => row.forEach(v => { if (v!==null) catSet.add(String(v)); }));
-  const cats = [...catSet];
-  if (!cats.length) return null;
-
-  const nij = papers.map((_,i) => {
-    const counts = Object.fromEntries(cats.map(c=>[c,0]));
-    matrix.forEach(row => { if (row[i]!==null) { const s=String(row[i]); if(counts[s]!==undefined) counts[s]++; } });
-    return counts;
-  });
-  const ni = nij.map(row => Object.values(row).reduce((a,b)=>a+b,0));
-  const N = ni.reduce((a,b)=>a+b,0);
-  if (!N) return null;
-
-  const Pi = nij.map((row,i) => {
-    const t = ni[i]; if (t<=1) return 0;
-    return cats.reduce((acc,c)=>acc+row[c]*(row[c]-1),0)/(t*(t-1));
-  });
-  const Pbar = avg(Pi);
-  const Pj = cats.map(c => nij.reduce((acc,row)=>acc+row[c],0)/N);
-  const Pe = Pj.reduce((acc,p)=>acc+p*p,0);
-  return Pe>=1 ? 1 : (Pbar-Pe)/(1-Pe);
-}
-
-function krippendorffAlpha(matrix, dataType) {
-  const nI = matrix[0].length;
-  const values = [];
-  matrix.forEach((row,o) => row.forEach((v,i) => {
-    if (v!==null) values.push({o,i,v:parseVal(v)});
-  }));
-  if (values.length < 2) return null;
-
-  const allVals = [...new Set(values.map(d=>d.v))].sort((a,b)=>a>b?1:-1);
-  const coincidences = {}, mu = {};
-  allVals.forEach(v => mu[v]=0);
-  let totalPairs = 0;
-
-  for (let i = 0; i < nI; i++) {
-    const iv = values.filter(d=>d.i===i);
-    const n = iv.length; if (n<2) continue;
-    for (let a = 0; a < iv.length; a++) {
-      for (let b = 0; b < iv.length; b++) {
-        if (a===b) continue;
-        const va=iv[a].v, vb=iv[b].v, w=1/(n-1);
-        const key=`${va}__${vb}`;
-        coincidences[key]=(coincidences[key]||0)+w;
-        mu[va]=(mu[va]||0)+w;
-        totalPairs+=w;
-      }
-    }
-  }
-  if (!totalPairs) return null;
-
-  let Do=0;
-  allVals.forEach(vk=>allVals.forEach(vl=>{
-    Do+=delta(vk,vl,dataType,allVals)*(coincidences[`${vk}__${vl}`]||0);
-  }));
-  Do/=totalPairs;
-
-  const muTotal=Object.values(mu).reduce((a,b)=>a+b,0);
-  let De=0;
-  allVals.forEach(vk=>allVals.forEach(vl=>{
-    De+=delta(vk,vl,dataType,allVals)*(mu[vk]||0)*(mu[vl]||0);
-  }));
-  De/=(muTotal*(muTotal-1));
-
-  return De===0 ? 1 : 1-Do/De;
 }
 
 function parseVal(v) { const n=Number(v); return isNaN(n)?String(v):n; }
@@ -1482,12 +1630,19 @@ function showResults(res, errors, warnings) {
 
   const {rqResults, paperResults, rqIdResults, rqIdPapers,
          paperIndexMap, paperLabelMap, paperGroupResults, paperGroupTitle, paperGroupRQs,
-         cols, papers, coders, metrics, metricErrors, metricWarnings, _wide} = res;
+         cols, papers, coders, metrics, metricErrors, metricWarnings,
+         allRecords, freetextSelected} = res;
 
   metrics.forEach(m => {
     metricErrors[m].forEach(e => area.innerHTML += banner('error','✖',`<strong>${METRIC_LABELS[m]}:</strong> ${e}`));
     metricWarnings[m].forEach(w => area.innerHTML += banner('warn','⚠',`<strong>${METRIC_LABELS[m]}:</strong> ${w}`));
   });
+
+  if (freetextSelected && freetextSelected.length > 0) {
+    area.innerHTML += banner('warn','⚠',
+      `<strong>${freetextSelected.length} free-text field${freetextSelected.length>1?'s':''} included:</strong> ${freetextSelected.join(', ')}. These use exact-string matching and may deflate IRR. The reference Python script excludes them by default.`
+    );
+  }
 
   const active = metrics.filter(m => !metricErrors[m].length);
   const vName = activeVersion ? SHEET_VERSIONS[activeVersion].name : '';
@@ -1498,7 +1653,7 @@ function showResults(res, errors, warnings) {
   hdr.className = 'results-header';
   hdr.innerHTML = `
     <div>
-      <div class="results-title">IRR Results <span class="info-tooltip">ℹ<span class="tooltip-body"><strong>Methodology note</strong><br>Krippendorff's Alpha uses the coincidence-matrix method (nominal by default). Validated against the krippendorff Python package. Per-RQ IRR = average of per-column Alpha values for that RQ. Overall = average of per-RQ values. Empty cells are treated as missing and excluded from calculations.</span></span></div>
+      <div class="results-title">IRR Results <span class="info-tooltip">ℹ<span class="tooltip-body"><strong>Methodology note</strong><br>Krippendorff's Alpha uses a <strong>pooled coincidence matrix</strong> across all (Paper, RQ, Field) units — one alpha per scope, not an average of per-column alphas. Numeric values are normalized (85 == 85.0), multiselect cells compared order-independently. Free-text fields may deflate alpha if included. Validated against the reference Python script (compute_irr.py).</span></span></div>
       <div class="results-meta">${vName ? vName+' · ' : ''}${papers.length} papers · ${cols.length} variables · ${coders.length} coders · ${ts}</div>
     </div>
     <div class="export-btns">
@@ -1648,7 +1803,9 @@ function showResults(res, errors, warnings) {
     cols.forEach(col => {
       const t = colTypes[col]||'nominal';
       const perPaperColVals = active.map(m =>
-        metricErrors[m].length ? null : calcMetric(m, {[pid]: _wide[pid]}, [pid], coders, col)
+        metricErrors[m].length ? null : calcMetricFromRecords(
+          m, allRecords, r => r.rq === pid && r.field === col, coders
+        )
       );
       innerRows += `<tr>
         <td style="font-family:var(--mono);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:28px" title="${col}">${col}</td>
@@ -1713,12 +1870,9 @@ function showResults(res, errors, warnings) {
 
     pairs.forEach(([ca,cb]) => {
       const colVals = cols.map(col => {
-        const mat = [[],[]];
-        papers.forEach(p => {
-          mat[0].push(_wide[p]?.[ca]?.[col]??null);
-          mat[1].push(_wide[p]?.[cb]?.[col]??null);
-        });
-        return pairwiseAgreement(mat);
+        // Per-column pairwise for this specific pair using records
+        const pairRecords = allRecords.filter(r => r.field === col && (r.coder === ca || r.coder === cb));
+        return pairwiseAgreementFromRecords(pairRecords, null);
       });
       const rowAvg = colVals.filter(v=>v!==null).length ? avg(colVals.filter(v=>v!==null)) : null;
       pairHtml += `<tr>
