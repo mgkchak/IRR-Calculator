@@ -1233,42 +1233,57 @@ document.getElementById('runBtn').addEventListener('click', () => {
   const overallAlpha = (!metricErrors['alpha'] || !metricErrors['alpha'].length)
     ? krippendorffAlphaPooled(allRecords) : null;
 
+  // Helper: does a pair share at least one (paper, rq, field) unit?
+  function pairHasOverlap(c1, c2, records) {
+    const c1units = new Set(records.filter(r=>r.coder===c1).map(r=>`${r.paper}\x00${r.rq}\x00${r.field}`));
+    return records.some(r => r.coder===c2 && c1units.has(`${r.paper}\x00${r.rq}\x00${r.field}`));
+  }
+
+  // Only keep pairs where both coders have overlapping units
+  const activePairs = pairs.filter(([c1,c2]) => pairHasOverlap(c1, c2, allRecords));
+
   // ── Pair-level alpha: pooled across ALL (Paper,RQ,Field) for that pair ──
   const pairResults = {};
-  pairs.forEach(([c1,c2]) => {
+  activePairs.forEach(([c1,c2]) => {
     const key = pk(c1,c2);
     const pr = allRecords.filter(r => r.coder===c1 || r.coder===c2);
     pairResults[key] = krippendorffAlphaPooled(pr);
   });
 
-  // ── Pair × Paper alpha ──
+  // ── Pair × Paper alpha — only papers where both coders have overlapping units ──
   const pairPaperResults = {};
-  pairs.forEach(([c1,c2]) => {
+  activePairs.forEach(([c1,c2]) => {
     const key = pk(c1,c2);
     pairPaperResults[key] = {};
     paperNums.forEach(pNum => {
       const pr = allRecords.filter(r => r.paper===pNum && (r.coder===c1||r.coder===c2));
-      pairPaperResults[key][pNum] = krippendorffAlphaPooled(pr);
+      // Only include if both coders have at least one overlapping unit on this paper
+      const c1units = new Set(pr.filter(r=>r.coder===c1).map(r=>`${r.rq}\x00${r.field}`));
+      const bothPresent = pr.some(r => r.coder===c2 && c1units.has(`${r.rq}\x00${r.field}`));
+      if (bothPresent) pairPaperResults[key][pNum] = krippendorffAlphaPooled(pr);
     });
   });
 
-  // ── Pair × Paper × RQ alpha ──
+  // ── Pair × Paper × RQ alpha — only RQs where both coders have overlapping units ──
   const pairPaperRQResults = {};
-  pairs.forEach(([c1,c2]) => {
+  activePairs.forEach(([c1,c2]) => {
     const key = pk(c1,c2);
     pairPaperRQResults[key] = {};
     paperNums.forEach(pNum => {
+      if (!pairPaperResults[key][pNum] && pairPaperResults[key][pNum] !== 0) return;
       pairPaperRQResults[key][pNum] = {};
       const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
       rqList.forEach(rqId => {
         const pr = allRecords.filter(r => r.paper===pNum && r.rq===rqId && (r.coder===c1||r.coder===c2));
-        pairPaperRQResults[key][pNum][rqId] = krippendorffAlphaPooled(pr);
+        const c1units = new Set(pr.filter(r=>r.coder===c1).map(r=>r.field));
+        const bothPresent = pr.some(r => r.coder===c2 && c1units.has(r.field));
+        if (bothPresent) pairPaperRQResults[key][pNum][rqId] = krippendorffAlphaPooled(pr);
       });
     });
   });
 
   lastResults = {
-    overallAlpha, pairs, pairResults, pairPaperResults, pairPaperRQResults,
+    overallAlpha, pairs: activePairs, pairResults, pairPaperResults, pairPaperRQResults,
     paperNums, paperNumToRQs, paperGroupTitle, paperGroupTitleFull,
     rqLabelMap, rqLabelFull,
     cols, papers, coders, metrics, metricErrors, metricWarnings,
@@ -1714,7 +1729,11 @@ function showResults(res, errors, warnings) {
 
     // Expandable paper sub-table
     let paperRows = '';
-    paperNums.forEach((pNum, pni) => {
+    const activePapersForPair = Object.keys(pairPaperResults[key]).sort((a,b) => {
+      const na=parseFloat(a), nb=parseFloat(b);
+      return isNaN(na)||isNaN(nb) ? a.localeCompare(b) : na-nb;
+    });
+    activePapersForPair.forEach((pNum, pni) => {
       const pv = pairPaperResults[key][pNum];
       const paperRowId = `paper-sub-${pi}-${pni}`;
       const title = paperGroupTitle[pNum] || '';
@@ -1727,10 +1746,10 @@ function showResults(res, errors, warnings) {
         <td>${fmtVal(pv, false)}</td>
       </tr>`;
 
-      // RQ sub-rows
-      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
+      // RQ sub-rows — only RQs where both coders overlapped
+      const activeRQs = Object.keys(pairPaperRQResults[key][pNum]||{}).sort();
       let rqRows = '';
-      rqList.forEach(rqId => {
+      activeRQs.forEach(rqId => {
         const rv = pairPaperRQResults[key][pNum][rqId];
         const label = rqLabelMap[rqId] || '';
         rqRows += `<tr>
@@ -1822,11 +1841,12 @@ function exportCSV() {
   pairs.forEach(([c1,c2]) => {
     const key = pk(c1,c2);
     lines.push([key, '', fmt(pairResults[key])].join(','));
-    paperNums.forEach(pNum => {
+    const activePapers = Object.keys(pairPaperResults[key]).sort((a,b)=>{const na=parseFloat(a),nb=parseFloat(b);return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;});
+    activePapers.forEach(pNum => {
       const title = paperGroupTitleFull[pNum] || '';
       lines.push(['', JSON.stringify(`Paper ${pNum} — ${title}`), fmt(pairPaperResults[key][pNum])].join(','));
-      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
-      rqList.forEach(rqId => {
+      const activeRQs = Object.keys(pairPaperRQResults[key][pNum]||{}).sort();
+      activeRQs.forEach(rqId => {
         const rqText = rqLabelFull[rqId] || rqId;
         lines.push(['', JSON.stringify(`  ${rqId}: ${rqText}`), fmt(pairPaperRQResults[key][pNum][rqId])].join(','));
       });
@@ -1864,11 +1884,12 @@ function exportXLSX() {
   pairs.forEach(([c1,c2]) => {
     const key = pk(c1,c2);
     wsData.push([key, '', fmt(pairResults[key])]);
-    paperNums.forEach(pNum => {
+    const activePapers = Object.keys(pairPaperResults[key]).sort((a,b)=>{const na=parseFloat(a),nb=parseFloat(b);return isNaN(na)||isNaN(nb)?a.localeCompare(b):na-nb;});
+    activePapers.forEach(pNum => {
       const title = paperGroupTitleFull[pNum] || '';
       wsData.push(['', `Paper ${pNum} — ${title}`, fmt(pairPaperResults[key][pNum])]);
-      const rqList = [...(paperNumToRQs[pNum]||new Set())].sort();
-      rqList.forEach(rqId => {
+      const activeRQs = Object.keys(pairPaperRQResults[key][pNum]||{}).sort();
+      activeRQs.forEach(rqId => {
         const rqText = rqLabelFull[rqId] || rqId;
         wsData.push(['', `  ${rqId}: ${rqText}`, fmt(pairPaperRQResults[key][pNum][rqId])]);
       });
